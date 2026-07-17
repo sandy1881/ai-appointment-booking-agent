@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: appointment-agent
+
+server:
+  port: 8080
