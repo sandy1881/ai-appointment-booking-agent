@@ -7,6 +7,7 @@ import com.brightcare_clinic.appointment_agent.email.model.EmailTemplate;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.UnsupportedEncodingException;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EmailService {
@@ -39,6 +41,7 @@ public class EmailService {
             helper.setSubject(template.getSubject());
             helper.setText(template.getHtmlBody(), true);
             mailSender.send(message);
+            log.info("Email sent to {} with subject '{}'", to, template.getSubject());
         } catch (MessagingException | UnsupportedEncodingException | MailException e) {
             throw new EmailException("Failed to send email to " + to, e);
         }

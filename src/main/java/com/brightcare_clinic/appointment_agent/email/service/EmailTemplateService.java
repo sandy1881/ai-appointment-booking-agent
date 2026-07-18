@@ -1,13 +1,16 @@
 package com.brightcare_clinic.appointment_agent.email.service;
 
+import com.brightcare_clinic.appointment_agent.config.ClinicProperties;
 import com.brightcare_clinic.appointment_agent.email.dto.EmailRequest;
 import com.brightcare_clinic.appointment_agent.email.model.EmailTemplate;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 @Service
+@RequiredArgsConstructor
 public class EmailTemplateService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH);
@@ -19,8 +22,10 @@ public class EmailTemplateService {
     private static final String MUTED_COLOR = "#6B7280";
     private static final String BORDER_COLOR = "#E5E7EB";
 
+    private final ClinicProperties clinicProperties;
+
     public EmailTemplate buildAppointmentConfirmation(EmailRequest request) {
-        String subject = "Appointment Confirmed - BrightCare Clinic";
+        String subject = "Appointment Confirmed - " + clinicProperties.getName();
         String html = renderEmail(
                 ACCENT_COLOR,
                 "✓",
@@ -32,7 +37,7 @@ public class EmailTemplateService {
     }
 
     public EmailTemplate buildCancellation(EmailRequest request) {
-        String subject = "Appointment Cancelled - BrightCare Clinic";
+        String subject = "Appointment Cancelled - " + clinicProperties.getName();
         String html = renderEmail(
                 DANGER_COLOR,
                 "✕",
@@ -65,7 +70,7 @@ public class EmailTemplateService {
                               <table role="presentation" cellpadding="0" cellspacing="0">
                                 <tr>
                                   <td style="width:36px; height:36px; background-color:rgba(255,255,255,0.2); border-radius:50%%; text-align:center; vertical-align:middle; font-size:18px; color:#FFFFFF; font-weight:bold;">%s</td>
-                                  <td style="padding-left:12px; font-size:18px; font-weight:600; color:#FFFFFF;">BrightCare Clinic</td>
+                                  <td style="padding-left:12px; font-size:18px; font-weight:600; color:#FFFFFF;">%s</td>
                                 </tr>
                               </table>
                             </td>
@@ -88,12 +93,12 @@ public class EmailTemplateService {
                                   <td style="padding:14px 16px; font-size:14px; color:%s; font-weight:600;">%s</td>
                                 </tr>
                               </table>
-                              <p style="margin:24px 0 0 0; font-size:13px; line-height:1.6; color:%s;">Thank you for choosing BrightCare Clinic.</p>
+                              <p style="margin:24px 0 0 0; font-size:13px; line-height:1.6; color:%s;">Thank you for choosing %s.</p>
                             </td>
                           </tr>
                           <tr>
                             <td style="padding:16px 32px; background-color:#FAFAFA; border-top:1px solid %s;">
-                              <p style="margin:0; font-size:12px; color:%s;">This is an automated message from BrightCare Clinic. Please do not reply directly to this email.</p>
+                              <p style="margin:0; font-size:12px; color:%s;">This is an automated message from %s. Please do not reply directly to this email.</p>
                             </td>
                           </tr>
                         </table>
@@ -103,16 +108,16 @@ public class EmailTemplateService {
                 </body>
                 </html>
                 """.formatted(
-                accentColor, badgeIcon,
+                accentColor, badgeIcon, clinicProperties.getName(),
                 accentColor, heading,
                 TEXT_COLOR, message,
                 BORDER_COLOR,
                 MUTED_COLOR, BORDER_COLOR, TEXT_COLOR, BORDER_COLOR, patientName,
                 MUTED_COLOR, BORDER_COLOR, TEXT_COLOR, BORDER_COLOR, formattedDate,
                 MUTED_COLOR, TEXT_COLOR, formattedTime,
-                MUTED_COLOR,
+                MUTED_COLOR, clinicProperties.getName(),
                 BORDER_COLOR,
-                MUTED_COLOR);
+                MUTED_COLOR, clinicProperties.getName());
     }
 
 }

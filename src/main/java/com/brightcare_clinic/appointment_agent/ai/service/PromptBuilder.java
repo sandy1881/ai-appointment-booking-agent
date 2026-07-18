@@ -25,4 +25,18 @@ public class PromptBuilder {
                 """.formatted(LocalDate.now(), message);
     }
 
+    public String buildBookingDetailsPrompt(String message) {
+        return """
+                The user is in the middle of booking a clinic appointment and was just asked what date and time they'd like.
+
+                Extract the appointment date and time from their reply, resolved relative to today's date which is %s.
+
+                Return ONLY a JSON object with exactly these keys:
+                - date (ISO format YYYY-MM-DD, or null if not mentioned or unclear)
+                - time (24-hour format HH:mm, or null if not mentioned or unclear)
+
+                Message: "%s"
+                """.formatted(LocalDate.now(), message);
+    }
+
 }

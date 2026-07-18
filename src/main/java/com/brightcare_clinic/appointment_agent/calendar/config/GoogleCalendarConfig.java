@@ -2,6 +2,7 @@ package com.brightcare_clinic.appointment_agent.calendar.config;
 
 import com.brightcare_clinic.appointment_agent.calendar.exception.CalendarException;
 import com.brightcare_clinic.appointment_agent.calendar.model.CalendarConstants;
+import com.brightcare_clinic.appointment_agent.config.ClinicProperties;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
 import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
@@ -13,6 +14,7 @@ import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.calendar.Calendar;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,7 +29,10 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 
 @Configuration
+@RequiredArgsConstructor
 public class GoogleCalendarConfig {
+
+    private final ClinicProperties clinicProperties;
 
     @Value("${google.credentials-path}")
     private String credentialsPath;
@@ -44,7 +49,7 @@ public class GoogleCalendarConfig {
                     .authorize("user");
 
             return new Calendar.Builder(httpTransport, jsonFactory, credential)
-                    .setApplicationName(CalendarConstants.APPLICATION_NAME)
+                    .setApplicationName(clinicProperties.getName())
                     .build();
         } catch (GeneralSecurityException | IOException e) {
             throw new CalendarException("Failed to authenticate with Google Calendar", e);

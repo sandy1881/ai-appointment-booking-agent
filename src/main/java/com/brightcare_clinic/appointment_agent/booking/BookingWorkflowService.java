@@ -52,6 +52,8 @@ public class BookingWorkflowService {
             }
         }
 
+        log.info("Booking confirmed for {} on {} at {}", request.getPatientName(), request.getAppointmentDate(), request.getAppointmentTime());
+
         return BookingResponse.builder()
                 .status(status)
                 .message(message)

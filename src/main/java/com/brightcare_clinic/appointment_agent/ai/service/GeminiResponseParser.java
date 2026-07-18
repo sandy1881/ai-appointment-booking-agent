@@ -30,6 +30,13 @@ public class GeminiResponseParser {
         return new IntentResult(intentType, originalMessage, bookingExtraction);
     }
 
+    public BookingExtraction parseBookingDetails(String rawJson) {
+        JsonNode node = readTree(rawJson);
+        LocalDate date = parseDate(textOrNull(node, "date"));
+        LocalTime time = parseTime(textOrNull(node, "time"));
+        return new BookingExtraction(null, date, time, null);
+    }
+
     private JsonNode readTree(String rawJson) {
         try {
             return objectMapper.readTree(rawJson);

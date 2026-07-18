@@ -28,3 +28,18 @@ google:
 email:
   from: ${EMAIL_USERNAME}
   from-name: BrightCare Clinic
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+clinic:
+  name: BrightCare Clinic
+  timezone: Asia/Kolkata
+
+booking:
+  slot-duration: 30
+  business-start: "09:00"
+  business-end: "18:00"

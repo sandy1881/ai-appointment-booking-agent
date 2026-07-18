@@ -19,8 +19,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.time.LocalDate;
-import java.time.LocalTime;
 
 @Slf4j
 @Service
@@ -38,6 +36,7 @@ public class AgentOrchestratorService {
 
         try {
             response = switch (session.getState()) {
+                case WAITING_FOR_BOOKING_DETAILS -> handleBookingDetailsCollection(session, message);
                 case WAITING_FOR_SLOT_CONFIRMATION -> handleSlotConfirmation(session, message);
                 case WAITING_FOR_EMAIL -> handleEmailCollection(session, message);
                 default -> handleByIntent(session, message);
@@ -48,6 +47,9 @@ public class AgentOrchestratorService {
         } catch (GeminiException e) {
             log.error("Gemini call failed for chatId {}", session.getChatId(), e);
             response = "Sorry, I'm having trouble understanding right now. Please try again shortly.";
+        } catch (RuntimeException e) {
+            log.error("Unexpected error while processing message for chatId {}", session.getChatId(), e);
+            response = "Sorry, something went wrong on our end. Please try again shortly.";
         }
 
         sessionService.saveSession(session);
@@ -71,14 +73,34 @@ public class AgentOrchestratorService {
     }
 
     private String startBooking(UserSession session, BookingExtraction extraction) throws IOException {
-        LocalDate requestedDate = extraction != null && extraction.getDate() != null
-                ? extraction.getDate() : LocalDate.now().plusDays(1);
-        LocalTime requestedTime = extraction != null && extraction.getTime() != null
-                ? extraction.getTime() : LocalTime.of(14, 0);
         String patientName = extraction != null ? extraction.getPatientName() : null;
         String email = extraction != null ? extraction.getEmail() : null;
 
-        BookingRequest requestedSlot = new BookingRequest(patientName, requestedDate, requestedTime, email);
+        if (extraction == null || extraction.getDate() == null || extraction.getTime() == null) {
+            session.setPendingBooking(new BookingRequest(patientName, null, null, email));
+            session.setState(ConversationState.WAITING_FOR_BOOKING_DETAILS);
+            return "Sure! What date and time would you like to come in?";
+        }
+
+        BookingRequest requestedSlot = new BookingRequest(patientName, extraction.getDate(), extraction.getTime(), email);
+        return proceedWithAvailabilityCheck(session, requestedSlot);
+    }
+
+    private String handleBookingDetailsCollection(UserSession session, String message) throws IOException {
+        BookingExtraction details = intentService.extractBookingDetails(message);
+
+        if (details.getDate() == null || details.getTime() == null) {
+            return "Sorry, I didn't catch a specific date and time. Could you tell me when you'd like to come in? For example: \"tomorrow at 3 PM\".";
+        }
+
+        BookingRequest pending = session.getPendingBooking();
+        pending.setAppointmentDate(details.getDate());
+        pending.setAppointmentTime(details.getTime());
+
+        return proceedWithAvailabilityCheck(session, pending);
+    }
+
+    private String proceedWithAvailabilityCheck(UserSession session, BookingRequest requestedSlot) throws IOException {
         BookingResponse bookingResponse = bookingWorkflowService.checkAvailability(requestedSlot);
 
         session.setState(ConversationState.WAITING_FOR_SLOT_CONFIRMATION);
@@ -89,7 +111,7 @@ public class AgentOrchestratorService {
         }
 
         CalendarSlot suggestedSlot = bookingResponse.getSuggestedSlot();
-        session.setPendingBooking(new BookingRequest(patientName, suggestedSlot.getDate(), suggestedSlot.getStartTime(), email));
+        session.setPendingBooking(new BookingRequest(requestedSlot.getPatientName(), suggestedSlot.getDate(), suggestedSlot.getStartTime(), requestedSlot.getEmail()));
         return bookingResponse.getMessage() + " Would you like " + suggestedSlot.getDate() + " at " + suggestedSlot.getStartTime() + " instead?";
     }
 

@@ -9,10 +9,12 @@ import com.brightcare_clinic.appointment_agent.calendar.model.CalendarSlot;
 import com.brightcare_clinic.appointment_agent.calendar.model.SlotResponse;
 import com.brightcare_clinic.appointment_agent.calendar.service.GoogleCalendarService;
 import com.google.api.services.calendar.model.EventDateTime;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -65,12 +67,8 @@ public class CalendarController {
     }
 
     @PostMapping("/create-appointment")
-    public AppointmentResponse createAppointment(
-            @RequestParam String patientName,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime time,
-            @RequestParam(required = false) String email) throws IOException {
-        BookingStatus status = calendarService.createAppointment(new BookingRequest(patientName, date, time, email));
+    public AppointmentResponse createAppointment(@Valid @RequestBody BookingRequest request) throws IOException {
+        BookingStatus status = calendarService.createAppointment(request);
         return new AppointmentResponse(status);
     }
 
