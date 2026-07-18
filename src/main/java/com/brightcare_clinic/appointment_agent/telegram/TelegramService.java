@@ -22,7 +22,7 @@ public class TelegramService {
             Long chatId = update.getMessage().getChatId();
             String text = update.getMessage().getText();
             log.info("Received message from chatId {}: {}", chatId, text);
-            String response = agentOrchestratorService.processMessage(text);
+            String response = agentOrchestratorService.processMessage(chatId, text);
             reply(chatId, response);
         }
     }
