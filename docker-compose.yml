@@ -1,0 +1,16 @@
+services:
+  appointment-agent:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      # OAuth client secret - read-only, never baked into the image
+      - ./config:/app/config:ro
+      # Cached Google OAuth token - must already exist (see README); lets the
+      # container refresh its token silently instead of needing a browser
+      - ./tokens:/app/tokens
+      # Persisted conversation sessions, survives container restarts
+      - ./data:/app/data
+    restart: unless-stopped

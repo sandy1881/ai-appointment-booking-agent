@@ -63,6 +63,20 @@ Turn on 2-Step Verification on the Gmail account you want to send from, then gen
 ```
 runs the suite — 55 tests, all mocking out the actual Calendar/Gemini/SMTP calls so it doesn't need any of the above configured to run.
 
+## Running it with Docker
+
+There's a multi-stage `Dockerfile` (Maven build stage → slim `eclipse-temurin:21-jre-alpine` runtime) and a `docker-compose.yml`.
+
+One thing that doesn't work inside a container: the Google OAuth login itself. It pops a browser and needs that browser to reach a callback on a local port — inside a container there's no browser, and the callback port isn't something you can sensibly expose. So **do the first-time Google login on your host machine first** (`./mvnw spring-boot:run`, trigger a booking once, complete the OAuth prompt as described above) — that populates `tokens/` with a cached credential. After that, Docker just mounts the existing `tokens/` folder in, and the container refreshes that cached token silently, no browser needed.
+
+Once `tokens/` exists and `.env` is filled in:
+
+```bash
+docker compose up -d
+```
+
+`docker-compose.yml` mounts `config/` (read-only), `tokens/`, and `data/` from the host, and loads `.env` for the container's environment — so OAuth stays a one-time host-side step, and sessions/tokens persist across container restarts the same way they would running it directly. I built and ran this end-to-end to confirm it actually works, not just that it builds: the container starts, connects to Telegram, and I verified from inside the running container that it's genuinely using the host's mounted `config/credentials.json` and cached `tokens/StoredCredential` rather than anything baked into the image.
+
 ## How I built the conversation
 
 **FAQ lookup happens before Gemini gets involved.** A message is checked against a small keyword list in `faq.json` first; if it matches, that's the answer, no API call made. Only a miss falls through to Gemini for intent classification. Cuts cost and latency for the handful of questions that have one fixed correct answer, and there's nothing for the model to hallucinate on those.
@@ -123,6 +137,5 @@ exception/    global REST error handling
 
 ## What I'd do next with more time
 
-- **Deploy it somewhere.** Right now it only runs while my laptop's running it. Containerizing and putting it on something like Fly.io or Render would make it actually persistent.
-- **A real reminder/notification path.** Nothing currently reaches out to the patient except the booking and cancellation emails — no day-before reminder, no way for the clinic side to push a message back into an existing conversation.
-- **Move the JSON file store to something more concurrent-write-safe if this ever became multi-instance.** Fine as-is for one process; would need rethinking (Redis, a real DB) the moment there's more than one.
+- **Actually deploy it.** It's containerized now, but still only runs on whatever machine you start it on. Putting the image on something like Fly.io or Render, with `tokens/`/`data/` on a small persistent volume, would make it run continuously instead of only while someone's got it up locally.
+

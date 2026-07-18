@@ -1,0 +1,14 @@
+target/
+.git/
+.idea/
+.vscode/
+*.log
+
+# Never bake secrets/state into the image - these are mounted in at runtime instead
+.env
+config/credentials.json
+tokens/
+data/
+
+README.md
+HELP.md
