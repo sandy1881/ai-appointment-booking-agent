@@ -1,5 +1,6 @@
 package com.brightcare_clinic.appointment_agent.telegram;
 
+import com.brightcare_clinic.appointment_agent.agent.AgentOrchestratorService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -13,16 +14,16 @@ import org.telegram.telegrambots.meta.generics.TelegramClient;
 @RequiredArgsConstructor
 public class TelegramService {
 
-    private static final String WELCOME_MESSAGE = "Hello! Welcome to BrightCare Clinic. How can I help you today?";
-
     private final TelegramClient telegramClient;
+    private final AgentOrchestratorService agentOrchestratorService;
 
     public void handleUpdate(Update update) {
         if (update.hasMessage() && update.getMessage().hasText()) {
             Long chatId = update.getMessage().getChatId();
             String text = update.getMessage().getText();
             log.info("Received message from chatId {}: {}", chatId, text);
-            reply(chatId, WELCOME_MESSAGE);
+            String response = agentOrchestratorService.processMessage(text);
+            reply(chatId, response);
         }
     }
 
