@@ -2,6 +2,9 @@ package com.brightcare_clinic.appointment_agent.agent;
 
 import com.brightcare_clinic.appointment_agent.ai.IntentService;
 import com.brightcare_clinic.appointment_agent.ai.model.IntentResult;
+import com.brightcare_clinic.appointment_agent.booking.BookingRequest;
+import com.brightcare_clinic.appointment_agent.booking.BookingResponse;
+import com.brightcare_clinic.appointment_agent.booking.BookingWorkflowService;
 import com.brightcare_clinic.appointment_agent.conversation.ConversationState;
 import com.brightcare_clinic.appointment_agent.conversation.SessionService;
 import com.brightcare_clinic.appointment_agent.conversation.UserSession;
@@ -14,6 +17,7 @@ public class AgentOrchestratorService {
 
     private final IntentService intentService;
     private final SessionService sessionService;
+    private final BookingWorkflowService bookingWorkflowService;
 
     public String processMessage(Long chatId, String message) {
         UserSession session = sessionService.getSession(chatId);
@@ -34,8 +38,9 @@ public class AgentOrchestratorService {
         return switch (intentResult.getIntentType()) {
             case GREETING -> "Hello! Welcome to BrightCare Clinic. How can I help you today?";
             case BOOK_APPOINTMENT -> {
+                BookingResponse bookingResponse = bookingWorkflowService.checkAvailability(new BookingRequest());
                 session.setState(ConversationState.WAITING_FOR_SLOT_CONFIRMATION);
-                yield "Tomorrow at 2 PM is unavailable. Would you like 3 PM instead?";
+                yield bookingResponse.getMessage() + " Would you like " + bookingResponse.getSuggestedSlot() + " instead?";
             }
             case FAQ -> "Let me help answer your question.";
             default -> "I'm not sure I understood that. Could you rephrase?";
