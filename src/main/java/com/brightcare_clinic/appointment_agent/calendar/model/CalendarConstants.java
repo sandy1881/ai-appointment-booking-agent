@@ -13,9 +13,10 @@ public final class CalendarConstants {
     public static final List<String> SCOPES = Collections.singletonList(CalendarScopes.CALENDAR);
 
     public static final int SLOT_DURATION_MINUTES = 30;
-    public static final LocalTime BUSINESS_HOURS_START = LocalTime.of(9, 0);
-    public static final LocalTime BUSINESS_HOURS_END = LocalTime.of(17, 0);
+    public static final LocalTime BUSINESS_START_TIME = LocalTime.of(9, 0);
+    public static final LocalTime BUSINESS_END_TIME = LocalTime.of(17, 0);
     public static final int MAX_SLOT_SEARCH_ATTEMPTS = 64;
+    public static final String PRIMARY_CALENDAR_ID = "primary";
 
     private CalendarConstants() {
     }

@@ -2,8 +2,11 @@ package com.brightcare_clinic.appointment_agent.calendar.controller;
 
 import com.brightcare_clinic.appointment_agent.booking.BookingRequest;
 import com.brightcare_clinic.appointment_agent.booking.BookingStatus;
+import com.brightcare_clinic.appointment_agent.calendar.model.AppointmentResponse;
+import com.brightcare_clinic.appointment_agent.calendar.model.AvailabilityResponse;
 import com.brightcare_clinic.appointment_agent.calendar.model.CalendarEventResponse;
 import com.brightcare_clinic.appointment_agent.calendar.model.CalendarSlot;
+import com.brightcare_clinic.appointment_agent.calendar.model.SlotResponse;
 import com.brightcare_clinic.appointment_agent.calendar.service.GoogleCalendarService;
 import com.google.api.services.calendar.model.EventDateTime;
 import lombok.RequiredArgsConstructor;
@@ -46,27 +49,29 @@ public class CalendarController {
     }
 
     @GetMapping("/check-availability")
-    public BookingStatus checkAvailability(
+    public AvailabilityResponse checkAvailability(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime time) throws IOException {
-        return calendarService.checkAvailability(date, time);
+        CalendarSlot slot = calendarService.checkAvailability(date, time);
+        return new AvailabilityResponse(slot.isAvailable());
     }
 
     @GetMapping("/next-slot")
-    public CalendarSlot nextSlot(
+    public SlotResponse nextSlot(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime time) throws IOException {
-        return calendarService.findNextAvailableSlot(date, time);
+        CalendarSlot slot = calendarService.findNextAvailableSlot(date, time);
+        return new SlotResponse(slot.getDate(), slot.getStartTime(), slot.getEndTime());
     }
 
     @PostMapping("/create-appointment")
-    public String createAppointment(
+    public AppointmentResponse createAppointment(
             @RequestParam String patientName,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime time,
             @RequestParam(required = false) String email) throws IOException {
-        calendarService.createAppointment(new BookingRequest(patientName, date, time, email));
-        return "Appointment created successfully";
+        BookingStatus status = calendarService.createAppointment(new BookingRequest(patientName, date, time, email));
+        return new AppointmentResponse(status);
     }
 
     private String formatEventTime(EventDateTime eventDateTime) {

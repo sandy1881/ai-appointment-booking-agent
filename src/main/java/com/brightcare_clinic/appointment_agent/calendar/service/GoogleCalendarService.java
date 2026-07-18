@@ -35,7 +35,7 @@ public class GoogleCalendarService {
         DateTime timeMin = toDateTime(today, LocalTime.MIDNIGHT);
         DateTime timeMax = toDateTime(today.plusDays(1), LocalTime.MIDNIGHT);
 
-        return getCalendarClient().events().list("primary")
+        return getCalendarClient().events().list(CalendarConstants.PRIMARY_CALENDAR_ID)
                 .setTimeMin(timeMin)
                 .setTimeMax(timeMax)
                 .setSingleEvents(true)
@@ -44,8 +44,10 @@ public class GoogleCalendarService {
                 .getItems();
     }
 
-    public BookingStatus checkAvailability(LocalDate date, LocalTime time) throws IOException {
-        return hasConflict(date, time) ? BookingStatus.SLOT_UNAVAILABLE : BookingStatus.SLOT_AVAILABLE;
+    public CalendarSlot checkAvailability(LocalDate date, LocalTime time) throws IOException {
+        boolean available = !hasConflict(date, time);
+        String message = available ? "Requested slot is available." : "Requested slot is unavailable.";
+        return new CalendarSlot(date, time, time.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES), available, message);
     }
 
     public CalendarSlot findNextAvailableSlot(LocalDate date, LocalTime time) throws IOException {
@@ -53,22 +55,28 @@ public class GoogleCalendarService {
         LocalTime searchTime = time.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES);
 
         for (int attempt = 0; attempt < CalendarConstants.MAX_SLOT_SEARCH_ATTEMPTS; attempt++) {
-            if (searchTime.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES).isAfter(CalendarConstants.BUSINESS_HOURS_END)) {
+            if (searchTime.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES).isAfter(CalendarConstants.BUSINESS_END_TIME)) {
                 searchDate = searchDate.plusDays(1);
-                searchTime = CalendarConstants.BUSINESS_HOURS_START;
+                searchTime = CalendarConstants.BUSINESS_START_TIME;
             }
 
             if (!hasConflict(searchDate, searchTime)) {
-                return new CalendarSlot(searchDate, searchTime, searchTime.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES), true);
+                return new CalendarSlot(
+                        searchDate,
+                        searchTime,
+                        searchTime.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES),
+                        true,
+                        "Next available slot found.");
             }
 
             searchTime = searchTime.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES);
         }
 
-        return null;
+        return new CalendarSlot(date, time, time.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES), false,
+                "No available slot found in the searched window.");
     }
 
-    public void createAppointment(BookingRequest request) throws IOException {
+    public BookingStatus createAppointment(BookingRequest request) throws IOException {
         LocalDateTime start = request.getAppointmentDate().atTime(request.getAppointmentTime());
         LocalDateTime end = start.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES);
         String zoneId = ZoneId.systemDefault().getId();
@@ -82,14 +90,15 @@ public class GoogleCalendarService {
             event.setAttendees(List.of(new EventAttendee().setEmail(request.getEmail())));
         }
 
-        getCalendarClient().events().insert("primary", event).execute();
+        getCalendarClient().events().insert(CalendarConstants.PRIMARY_CALENDAR_ID, event).execute();
+        return BookingStatus.CONFIRMED;
     }
 
     private boolean hasConflict(LocalDate date, LocalTime time) throws IOException {
         DateTime timeMin = toDateTime(date, time);
         DateTime timeMax = toDateTime(date, time.plusMinutes(CalendarConstants.SLOT_DURATION_MINUTES));
 
-        List<Event> events = getCalendarClient().events().list("primary")
+        List<Event> events = getCalendarClient().events().list(CalendarConstants.PRIMARY_CALENDAR_ID)
                 .setTimeMin(timeMin)
                 .setTimeMax(timeMax)
                 .setSingleEvents(true)

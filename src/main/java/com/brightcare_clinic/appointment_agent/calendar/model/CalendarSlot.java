@@ -18,5 +18,6 @@ public class CalendarSlot {
     private LocalTime startTime;
     private LocalTime endTime;
     private boolean available;
+    private String message;
 
 }
