@@ -14,9 +14,10 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -33,9 +34,23 @@ class BookingWorkflowServiceTest {
     private BookingWorkflowService bookingWorkflowService;
 
     @Test
-    void checkAvailability_whenSlotIsAvailable_returnsAvailableStatus() throws Exception {
-        LocalDate date = LocalDate.of(2026, 8, 1);
+    void checkAvailability_whenOutsideBusinessHours_returnsUnavailableWithoutCallingCalendar() throws Exception {
+        LocalDate saturday = LocalDate.of(2026, 8, 1);
         LocalTime time = LocalTime.of(14, 0);
+        when(googleCalendarService.isWithinBusinessHours(saturday, time)).thenReturn(false);
+
+        BookingResponse response = bookingWorkflowService.checkAvailability(new BookingRequest(null, saturday, time, null));
+
+        assertEquals(BookingStatus.SLOT_UNAVAILABLE, response.getStatus());
+        assertNull(response.getSuggestedSlot());
+        verify(googleCalendarService, never()).checkAvailability(any(), any());
+    }
+
+    @Test
+    void checkAvailability_whenSlotIsAvailable_returnsAvailableStatus() throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        LocalTime time = LocalTime.of(14, 0);
+        when(googleCalendarService.isWithinBusinessHours(date, time)).thenReturn(true);
         when(googleCalendarService.checkAvailability(date, time))
                 .thenReturn(new CalendarSlot(date, time, time.plusMinutes(30), true, "Requested slot is available."));
 
@@ -46,10 +61,11 @@ class BookingWorkflowServiceTest {
 
     @Test
     void checkAvailability_whenSlotIsBusy_returnsUnavailableWithSuggestedSlot() throws Exception {
-        LocalDate date = LocalDate.of(2026, 8, 1);
+        LocalDate date = LocalDate.of(2026, 8, 3);
         LocalTime time = LocalTime.of(14, 0);
         CalendarSlot suggested = new CalendarSlot(date, LocalTime.of(15, 0), LocalTime.of(15, 30), true, "Next available slot found.");
 
+        when(googleCalendarService.isWithinBusinessHours(date, time)).thenReturn(true);
         when(googleCalendarService.checkAvailability(date, time))
                 .thenReturn(new CalendarSlot(date, time, time.plusMinutes(30), false, "Requested slot is unavailable."));
         when(googleCalendarService.findNextAvailableSlot(date, time)).thenReturn(suggested);
@@ -61,38 +77,55 @@ class BookingWorkflowServiceTest {
     }
 
     @Test
+    void checkAvailability_whenNoSlotsLeftThatDay_returnsUnavailableWithoutSuggestedSlot() throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        LocalTime time = LocalTime.of(17, 30);
+        CalendarSlot noneLeft = new CalendarSlot(date, time, time.plusMinutes(30), false, "No available slot found later today.");
+
+        when(googleCalendarService.isWithinBusinessHours(date, time)).thenReturn(true);
+        when(googleCalendarService.checkAvailability(date, time))
+                .thenReturn(new CalendarSlot(date, time, time.plusMinutes(30), false, "Requested slot is unavailable."));
+        when(googleCalendarService.findNextAvailableSlot(date, time)).thenReturn(noneLeft);
+
+        BookingResponse response = bookingWorkflowService.checkAvailability(new BookingRequest(null, date, time, null));
+
+        assertEquals(BookingStatus.SLOT_UNAVAILABLE, response.getStatus());
+        assertNull(response.getSuggestedSlot());
+    }
+
+    @Test
     void confirmAppointment_sendsConfirmationEmail_whenEmailProvided() throws Exception {
-        BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 1), LocalTime.of(14, 0), "rohan@example.com");
+        BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 3), LocalTime.of(14, 0), "rohan@example.com");
         when(googleCalendarService.createAppointment(request)).thenReturn(BookingStatus.CONFIRMED);
 
         BookingResponse response = bookingWorkflowService.confirmAppointment(request);
 
         assertEquals(BookingStatus.CONFIRMED, response.getStatus());
-        assertEquals("Your appointment is confirmed.", response.getMessage());
+        assertEquals("Done — you're booked for Monday 2:00pm. Anything else?", response.getMessage());
         verify(emailService).sendAppointmentConfirmation(any());
     }
 
     @Test
     void confirmAppointment_stillConfirmsBooking_whenEmailSendingFails() throws Exception {
-        BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 1), LocalTime.of(14, 0), "rohan@example.com");
+        BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 3), LocalTime.of(14, 0), "rohan@example.com");
         when(googleCalendarService.createAppointment(request)).thenReturn(BookingStatus.CONFIRMED);
         doThrow(new EmailException("SMTP down", null)).when(emailService).sendAppointmentConfirmation(any());
 
         BookingResponse response = bookingWorkflowService.confirmAppointment(request);
 
         assertEquals(BookingStatus.CONFIRMED, response.getStatus());
-        assertEquals("Your appointment is confirmed. We couldn't send the confirmation email.", response.getMessage());
+        assertEquals("Done — you're booked for Monday 2:00pm. We couldn't send the confirmation email, though.", response.getMessage());
     }
 
     @Test
     void confirmAppointment_skipsEmail_whenNoEmailProvided() throws Exception {
-        BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 1), LocalTime.of(14, 0), null);
+        BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 3), LocalTime.of(14, 0), null);
         when(googleCalendarService.createAppointment(request)).thenReturn(BookingStatus.CONFIRMED);
 
         BookingResponse response = bookingWorkflowService.confirmAppointment(request);
 
         assertEquals(BookingStatus.CONFIRMED, response.getStatus());
-        verify(emailService, org.mockito.Mockito.never()).sendAppointmentConfirmation(any());
+        verify(emailService, never()).sendAppointmentConfirmation(any());
     }
 
 }

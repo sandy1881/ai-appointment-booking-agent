@@ -8,8 +8,8 @@ import lombok.Getter;
 @Builder
 public class BookingResponse {
 
-    private BookingStatus status;
-    private String message;
-    private CalendarSlot suggestedSlot;
+    private final BookingStatus status;
+    private final String message;
+    private final CalendarSlot suggestedSlot;
 
 }

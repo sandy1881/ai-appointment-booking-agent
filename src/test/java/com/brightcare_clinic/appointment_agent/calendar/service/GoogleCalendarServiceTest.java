@@ -65,7 +65,7 @@ class GoogleCalendarServiceTest {
 
         googleCalendarService = new GoogleCalendarService(calendarClientProvider, bookingProperties, clinicProperties);
 
-        when(calendarClientProvider.getObject()).thenReturn(calendar);
+        org.mockito.Mockito.lenient().when(calendarClientProvider.getObject()).thenReturn(calendar);
     }
 
     private void stubEventsList(Events... results) throws Exception {
@@ -119,6 +119,48 @@ class GoogleCalendarServiceTest {
         assertEquals(LocalDate.of(2026, 8, 1), slot.getDate());
         assertEquals(LocalTime.of(15, 0), slot.getStartTime());
         assertEquals(LocalTime.of(15, 30), slot.getEndTime());
+    }
+
+    @Test
+    void findNextAvailableSlot_whenNothingFreeForRestOfDay_doesNotRollOverToNextDay() throws Exception {
+        Events busy = mock(Events.class);
+        when(busy.getItems()).thenReturn(List.of(new Event()));
+
+        when(calendar.events()).thenReturn(eventsResource);
+        when(eventsResource.list(anyString())).thenReturn(listRequest);
+        when(listRequest.setTimeMin(any())).thenReturn(listRequest);
+        when(listRequest.setTimeMax(any())).thenReturn(listRequest);
+        when(listRequest.setSingleEvents(any())).thenReturn(listRequest);
+        when(listRequest.execute()).thenReturn(busy);
+
+        // Requesting 17:00 -> the only remaining same-day candidate is 17:30 (the last slot
+        // before 18:00 close). That candidate is busy, so there must be no slot left that
+        // day - and crucially, this must NOT roll over into the next day.
+        CalendarSlot slot = googleCalendarService.findNextAvailableSlot(LocalDate.of(2026, 8, 1), LocalTime.of(17, 0));
+
+        assertFalse(slot.isAvailable());
+        assertEquals(LocalDate.of(2026, 8, 1), slot.getDate());
+    }
+
+    @Test
+    void isWithinBusinessHours_forWeekdayDuringHours_returnsTrue() {
+        assertTrue(googleCalendarService.isWithinBusinessHours(LocalDate.of(2026, 8, 3), LocalTime.of(14, 0)));
+    }
+
+    @Test
+    void isWithinBusinessHours_forWeekend_returnsFalse() {
+        LocalDate saturday = LocalDate.of(2026, 8, 1);
+        assertFalse(googleCalendarService.isWithinBusinessHours(saturday, LocalTime.of(14, 0)));
+    }
+
+    @Test
+    void isWithinBusinessHours_beforeOpening_returnsFalse() {
+        assertFalse(googleCalendarService.isWithinBusinessHours(LocalDate.of(2026, 8, 3), LocalTime.of(8, 0)));
+    }
+
+    @Test
+    void isWithinBusinessHours_tooCloseToClosingToFitSlot_returnsFalse() {
+        assertFalse(googleCalendarService.isWithinBusinessHours(LocalDate.of(2026, 8, 3), LocalTime.of(17, 45)));
     }
 
     @Test

@@ -1,14 +1,22 @@
 [
   {
-    "keywords": ["timing", "timings", "hours", "open", "close", "closed", "when are you open", "working hours"],
-    "answer": "We are open Monday to Saturday, 9:00 AM to 6:00 PM."
+    "keywords": ["timing", "timings", "hours", "open", "close", "closed", "when are you open", "working hours", "weekend"],
+    "answer": "We are open Monday to Friday, 9:00 AM to 6:00 PM. We're closed on weekends."
   },
   {
     "keywords": ["address", "location", "located", "where is your clinic", "where are you", "directions"],
-    "answer": "We are located at 123 MG Road, Bengaluru."
+    "answer": "We are located at 12 Orchard Rd."
   },
   {
-    "keywords": ["phone", "contact", "number", "call", "reach you"],
-    "answer": "You can reach us at +91-9876543210."
+    "keywords": ["walk-in", "walk in", "walkin", "without an appointment", "appointment only", "do i need an appointment"],
+    "answer": "We don't accept walk-ins - appointments only."
+  },
+  {
+    "keywords": ["cancel", "cancellation", "reschedule"],
+    "answer": "To cancel or reschedule, please message the clinic directly."
+  },
+  {
+    "keywords": ["parking", "park"],
+    "answer": "Yes, parking is available on-site."
   }
 ]

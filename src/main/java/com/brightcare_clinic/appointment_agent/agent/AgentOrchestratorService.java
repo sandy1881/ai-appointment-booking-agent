@@ -14,11 +14,14 @@ import com.brightcare_clinic.appointment_agent.conversation.SessionService;
 import com.brightcare_clinic.appointment_agent.conversation.UserSession;
 import com.brightcare_clinic.appointment_agent.faq.dto.FaqResponse;
 import com.brightcare_clinic.appointment_agent.faq.service.FaqService;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -29,6 +32,7 @@ public class AgentOrchestratorService {
     private final SessionService sessionService;
     private final BookingWorkflowService bookingWorkflowService;
     private final FaqService faqService;
+    private final Validator validator;
 
     public String processMessage(Long chatId, String message) {
         UserSession session = sessionService.getSession(chatId);
@@ -103,16 +107,23 @@ public class AgentOrchestratorService {
     private String proceedWithAvailabilityCheck(UserSession session, BookingRequest requestedSlot) throws IOException {
         BookingResponse bookingResponse = bookingWorkflowService.checkAvailability(requestedSlot);
 
-        session.setState(ConversationState.WAITING_FOR_SLOT_CONFIRMATION);
-
         if (bookingResponse.getStatus() == BookingStatus.SLOT_AVAILABLE) {
             session.setPendingBooking(requestedSlot);
+            session.setState(ConversationState.WAITING_FOR_SLOT_CONFIRMATION);
             return bookingResponse.getMessage() + " Shall I book it?";
         }
 
         CalendarSlot suggestedSlot = bookingResponse.getSuggestedSlot();
+        if (suggestedSlot == null) {
+            // Outside business hours, or nothing left that day - ask for a different date/time instead of a yes/no.
+            session.setPendingBooking(new BookingRequest(requestedSlot.getPatientName(), null, null, requestedSlot.getEmail()));
+            session.setState(ConversationState.WAITING_FOR_BOOKING_DETAILS);
+            return bookingResponse.getMessage();
+        }
+
         session.setPendingBooking(new BookingRequest(requestedSlot.getPatientName(), suggestedSlot.getDate(), suggestedSlot.getStartTime(), requestedSlot.getEmail()));
-        return bookingResponse.getMessage() + " Would you like " + suggestedSlot.getDate() + " at " + suggestedSlot.getStartTime() + " instead?";
+        session.setState(ConversationState.WAITING_FOR_SLOT_CONFIRMATION);
+        return bookingResponse.getMessage() + " Shall I book that?";
     }
 
     private String handleSlotConfirmation(UserSession session, String message) {
@@ -126,8 +137,14 @@ public class AgentOrchestratorService {
     }
 
     private String handleEmailCollection(UserSession session, String message) throws IOException {
+        String email = message.trim();
         BookingRequest pendingBooking = session.getPendingBooking();
-        pendingBooking.setEmail(message.trim());
+        pendingBooking.setEmail(email);
+
+        Set<ConstraintViolation<BookingRequest>> violations = validator.validateProperty(pendingBooking, "email");
+        if (email.isEmpty() || !violations.isEmpty()) {
+            return "That doesn't look like a valid email address. Could you double-check and send it again?";
+        }
 
         BookingResponse response = bookingWorkflowService.confirmAppointment(pendingBooking);
 

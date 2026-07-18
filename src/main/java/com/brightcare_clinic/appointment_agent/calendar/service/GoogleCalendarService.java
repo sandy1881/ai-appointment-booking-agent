@@ -17,6 +17,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -50,6 +51,13 @@ public class GoogleCalendarService {
                 .getItems();
     }
 
+    public boolean isWithinBusinessHours(LocalDate date, LocalTime time) {
+        boolean isWeekday = date.getDayOfWeek() != DayOfWeek.SATURDAY && date.getDayOfWeek() != DayOfWeek.SUNDAY;
+        boolean fitsWithinHours = !time.isBefore(bookingProperties.getBusinessStart())
+                && !time.plusMinutes(bookingProperties.getSlotDuration()).isAfter(bookingProperties.getBusinessEnd());
+        return isWeekday && fitsWithinHours;
+    }
+
     public CalendarSlot checkAvailability(LocalDate date, LocalTime time) throws IOException {
         log.info("Checking calendar availability for {} at {}", date, time);
         boolean available = !hasConflict(date, time);
@@ -57,30 +65,23 @@ public class GoogleCalendarService {
         return new CalendarSlot(date, time, time.plusMinutes(bookingProperties.getSlotDuration()), available, message);
     }
 
+    /**
+     * Searches for the next open slot on the same day only, at or after the requested time.
+     * Never rolls over to a later day - callers should tell the user if none remain today.
+     */
     public CalendarSlot findNextAvailableSlot(LocalDate date, LocalTime time) throws IOException {
-        LocalDate searchDate = date;
         LocalTime searchTime = time.plusMinutes(bookingProperties.getSlotDuration());
 
-        for (int attempt = 0; attempt < CalendarConstants.MAX_SLOT_SEARCH_ATTEMPTS; attempt++) {
-            if (searchTime.plusMinutes(bookingProperties.getSlotDuration()).isAfter(bookingProperties.getBusinessEnd())) {
-                searchDate = searchDate.plusDays(1);
-                searchTime = bookingProperties.getBusinessStart();
-            }
-
-            if (!hasConflict(searchDate, searchTime)) {
-                return new CalendarSlot(
-                        searchDate,
-                        searchTime,
-                        searchTime.plusMinutes(bookingProperties.getSlotDuration()),
-                        true,
+        while (!searchTime.plusMinutes(bookingProperties.getSlotDuration()).isAfter(bookingProperties.getBusinessEnd())) {
+            if (!hasConflict(date, searchTime)) {
+                return new CalendarSlot(date, searchTime, searchTime.plusMinutes(bookingProperties.getSlotDuration()), true,
                         "Next available slot found.");
             }
-
             searchTime = searchTime.plusMinutes(bookingProperties.getSlotDuration());
         }
 
         return new CalendarSlot(date, time, time.plusMinutes(bookingProperties.getSlotDuration()), false,
-                "No available slot found in the searched window.");
+                "No available slot found later today.");
     }
 
     public BookingStatus createAppointment(BookingRequest request) throws IOException {

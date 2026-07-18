@@ -17,6 +17,8 @@ import com.brightcare_clinic.appointment_agent.faq.repository.FaqRepository;
 import com.brightcare_clinic.appointment_agent.faq.service.FaqService;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -80,7 +82,8 @@ class AgentOrchestratorIntegrationTest {
 
         BookingWorkflowService bookingWorkflowService = new BookingWorkflowService(googleCalendarService, emailService);
 
-        agentOrchestratorService = new AgentOrchestratorService(intentService, new SessionService(), bookingWorkflowService, faqService);
+        Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+        agentOrchestratorService = new AgentOrchestratorService(intentService, new SessionService(), bookingWorkflowService, faqService, validator);
     }
 
     @Test
@@ -91,6 +94,7 @@ class AgentOrchestratorIntegrationTest {
         when(geminiService.analyzeMessage(anyString())).thenReturn("""
                 {"intent":"book_appointment","patientName":"Rohan","date":"%s","time":"15:00","email":"rohan@example.com"}
                 """.formatted(tomorrow));
+        when(googleCalendarService.isWithinBusinessHours(tomorrow, LocalTime.of(15, 0))).thenReturn(true);
         when(googleCalendarService.checkAvailability(tomorrow, LocalTime.of(15, 0)))
                 .thenReturn(new CalendarSlot(tomorrow, LocalTime.of(15, 0), LocalTime.of(15, 30), true, "Requested slot is available."));
         when(googleCalendarService.createAppointment(any())).thenReturn(BookingStatus.CONFIRMED);
@@ -102,7 +106,7 @@ class AgentOrchestratorIntegrationTest {
         assertEquals("Great! What's your email address?", confirmationReply);
 
         String finalReply = agentOrchestratorService.processMessage(chatId, "rohan@example.com");
-        assertTrue(finalReply.contains("confirmed"));
+        assertTrue(finalReply.contains("you're booked"));
 
         verify(googleCalendarService).createAppointment(any());
         verify(mailSender).send(any(MimeMessage.class));
@@ -117,6 +121,7 @@ class AgentOrchestratorIntegrationTest {
         when(geminiService.analyzeMessage(anyString())).thenReturn("""
                 {"intent":"book_appointment","patientName":"Priya","date":"%s","time":"15:00","email":"priya@example.com"}
                 """.formatted(tomorrow));
+        when(googleCalendarService.isWithinBusinessHours(tomorrow, LocalTime.of(15, 0))).thenReturn(true);
         when(googleCalendarService.checkAvailability(tomorrow, LocalTime.of(15, 0)))
                 .thenReturn(new CalendarSlot(tomorrow, LocalTime.of(15, 0), LocalTime.of(15, 30), false, "Requested slot is unavailable."));
         when(googleCalendarService.findNextAvailableSlot(tomorrow, LocalTime.of(15, 0)))
@@ -124,7 +129,7 @@ class AgentOrchestratorIntegrationTest {
 
         String reply = agentOrchestratorService.processMessage(chatId, "Book an appointment tomorrow at 3pm, my name is Priya, email priya@example.com");
 
-        assertTrue(reply.contains("16:00"));
+        assertTrue(reply.contains("4:00pm"));
         verify(googleCalendarService, org.mockito.Mockito.never()).createAppointment(any());
     }
 
