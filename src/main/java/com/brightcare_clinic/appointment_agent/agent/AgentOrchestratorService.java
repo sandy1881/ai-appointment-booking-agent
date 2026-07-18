@@ -1,6 +1,8 @@
 package com.brightcare_clinic.appointment_agent.agent;
 
 import com.brightcare_clinic.appointment_agent.ai.IntentService;
+import com.brightcare_clinic.appointment_agent.ai.exception.GeminiException;
+import com.brightcare_clinic.appointment_agent.ai.model.BookingExtraction;
 import com.brightcare_clinic.appointment_agent.ai.model.IntentResult;
 import com.brightcare_clinic.appointment_agent.booking.BookingRequest;
 import com.brightcare_clinic.appointment_agent.booking.BookingResponse;
@@ -40,6 +42,9 @@ public class AgentOrchestratorService {
         } catch (IOException e) {
             log.error("Calendar operation failed for chatId {}", session.getChatId(), e);
             response = "Sorry, I couldn't reach the calendar right now. Please try again shortly.";
+        } catch (GeminiException e) {
+            log.error("Gemini call failed for chatId {}", session.getChatId(), e);
+            response = "Sorry, I'm having trouble understanding right now. Please try again shortly.";
         }
 
         sessionService.saveSession(session);
@@ -51,16 +56,21 @@ public class AgentOrchestratorService {
 
         return switch (intentResult.getIntentType()) {
             case GREETING -> "Hello! Welcome to BrightCare Clinic. How can I help you today?";
-            case BOOK_APPOINTMENT -> startBooking(session);
+            case BOOK_APPOINTMENT -> startBooking(session, intentResult.getBookingExtraction());
             case FAQ -> "Let me help answer your question.";
             default -> "I'm not sure I understood that. Could you rephrase?";
         };
     }
 
-    private String startBooking(UserSession session) throws IOException {
-        // No date/time extraction from natural language yet (that's Phase 9, Gemini) -
-        // assume "tomorrow at 2 PM" as the requested slot for now.
-        BookingRequest requestedSlot = new BookingRequest(null, LocalDate.now().plusDays(1), LocalTime.of(14, 0), null);
+    private String startBooking(UserSession session, BookingExtraction extraction) throws IOException {
+        LocalDate requestedDate = extraction != null && extraction.getDate() != null
+                ? extraction.getDate() : LocalDate.now().plusDays(1);
+        LocalTime requestedTime = extraction != null && extraction.getTime() != null
+                ? extraction.getTime() : LocalTime.of(14, 0);
+        String patientName = extraction != null ? extraction.getPatientName() : null;
+        String email = extraction != null ? extraction.getEmail() : null;
+
+        BookingRequest requestedSlot = new BookingRequest(patientName, requestedDate, requestedTime, email);
         BookingResponse bookingResponse = bookingWorkflowService.checkAvailability(requestedSlot);
 
         session.setState(ConversationState.WAITING_FOR_SLOT_CONFIRMATION);
@@ -71,7 +81,7 @@ public class AgentOrchestratorService {
         }
 
         CalendarSlot suggestedSlot = bookingResponse.getSuggestedSlot();
-        session.setPendingBooking(new BookingRequest(null, suggestedSlot.getDate(), suggestedSlot.getStartTime(), null));
+        session.setPendingBooking(new BookingRequest(patientName, suggestedSlot.getDate(), suggestedSlot.getStartTime(), email));
         return bookingResponse.getMessage() + " Would you like " + suggestedSlot.getDate() + " at " + suggestedSlot.getStartTime() + " instead?";
     }
 

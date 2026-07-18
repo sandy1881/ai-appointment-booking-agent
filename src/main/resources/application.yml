@@ -12,6 +12,7 @@ telegram:
 
 gemini:
   api-key: ${GEMINI_API_KEY}
+  model: gemini-flash-latest
 
 google:
   client-id: ${GOOGLE_CLIENT_ID}

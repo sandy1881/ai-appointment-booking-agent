@@ -1,30 +1,24 @@
 package com.brightcare_clinic.appointment_agent.ai;
 
 import com.brightcare_clinic.appointment_agent.ai.model.IntentResult;
-import com.brightcare_clinic.appointment_agent.ai.model.IntentType;
+import com.brightcare_clinic.appointment_agent.ai.service.GeminiResponseParser;
+import com.brightcare_clinic.appointment_agent.ai.service.GeminiService;
+import com.brightcare_clinic.appointment_agent.ai.service.PromptBuilder;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
-import java.util.List;
-
 @Service
+@RequiredArgsConstructor
 public class IntentService {
 
+    private final GeminiService geminiService;
+    private final PromptBuilder promptBuilder;
+    private final GeminiResponseParser geminiResponseParser;
+
     public IntentResult detectIntent(String message) {
-        List<String> words = Arrays.asList(message.toLowerCase().split("\\W+"));
-        IntentType intentType;
-
-        if (words.contains("book") || words.contains("appointment")) {
-            intentType = IntentType.BOOK_APPOINTMENT;
-        } else if (words.contains("hi") || words.contains("hello") || words.contains("hey")) {
-            intentType = IntentType.GREETING;
-        } else if (words.contains("where") || words.contains("location") || words.contains("hours") || words.contains("address")) {
-            intentType = IntentType.FAQ;
-        } else {
-            intentType = IntentType.GENERAL;
-        }
-
-        return new IntentResult(intentType, message);
+        String prompt = promptBuilder.buildIntentExtractionPrompt(message);
+        String rawJson = geminiService.analyzeMessage(prompt);
+        return geminiResponseParser.parse(rawJson, message);
     }
 
 }

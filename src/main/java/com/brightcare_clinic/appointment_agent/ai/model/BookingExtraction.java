@@ -5,14 +5,18 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class IntentResult {
+public class BookingExtraction {
 
-    private IntentType intentType;
-    private String userMessage;
-    private BookingExtraction bookingExtraction;
+    private String patientName;
+    private LocalDate date;
+    private LocalTime time;
+    private String email;
 
 }
