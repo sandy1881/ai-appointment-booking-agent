@@ -37,3 +37,4 @@ build/
 .env
 config/credentials.json
 tokens/
+data/

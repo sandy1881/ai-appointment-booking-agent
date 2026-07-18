@@ -6,6 +6,8 @@ public enum IntentType {
 
     BOOK_APPOINTMENT,
 
+    CANCEL_APPOINTMENT,
+
     FAQ,
 
     GENERAL

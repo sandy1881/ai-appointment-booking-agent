@@ -21,6 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Set;
 
 @Slf4j
@@ -43,6 +45,8 @@ public class AgentOrchestratorService {
                 case WAITING_FOR_BOOKING_DETAILS -> handleBookingDetailsCollection(session, message);
                 case WAITING_FOR_SLOT_CONFIRMATION -> handleSlotConfirmation(session, message);
                 case WAITING_FOR_EMAIL -> handleEmailCollection(session, message);
+                case WAITING_FOR_CANCELLATION_DETAILS -> handleCancellationDetailsCollection(session, message);
+                case WAITING_FOR_CANCELLATION_CONFIRMATION -> handleCancellationConfirmation(session, message);
                 default -> handleByIntent(session, message);
             };
         } catch (IOException e) {
@@ -56,6 +60,7 @@ public class AgentOrchestratorService {
             response = "Sorry, something went wrong on our end. Please try again shortly.";
         }
 
+        session.recordTurn(message, response);
         sessionService.saveSession(session);
         return response;
     }
@@ -66,11 +71,12 @@ public class AgentOrchestratorService {
             return faqResponse.answer();
         }
 
-        IntentResult intentResult = intentService.detectIntent(message);
+        IntentResult intentResult = intentService.detectIntent(message, session.getConversationHistory());
 
         return switch (intentResult.getIntentType()) {
             case GREETING -> "Hello! Welcome to BrightCare Clinic. How can I help you today?";
             case BOOK_APPOINTMENT -> startBooking(session, intentResult.getBookingExtraction());
+            case CANCEL_APPOINTMENT -> startCancellation(session, intentResult.getBookingExtraction());
             case FAQ -> "I don't have a specific answer for that, but feel free to call the clinic directly.";
             default -> "I'm not sure I understood that. Could you rephrase?";
         };
@@ -91,7 +97,7 @@ public class AgentOrchestratorService {
     }
 
     private String handleBookingDetailsCollection(UserSession session, String message) throws IOException {
-        BookingExtraction details = intentService.extractBookingDetails(message);
+        BookingExtraction details = intentService.extractBookingDetails(message, session.getConversationHistory());
 
         if (details.getDate() == null || details.getTime() == null) {
             return "Sorry, I didn't catch a specific date and time. Could you tell me when you'd like to come in? For example: \"tomorrow at 3 PM\".";
@@ -148,12 +154,72 @@ public class AgentOrchestratorService {
 
         BookingResponse response = bookingWorkflowService.confirmAppointment(pendingBooking);
 
-        session.setState(ConversationState.BOOKING_COMPLETED);
-        session.setPendingBooking(null);
+        if (response.getStatus() == BookingStatus.CONFIRMED) {
+            session.setState(ConversationState.BOOKING_COMPLETED);
+            session.setPendingBooking(null);
+            return response.getMessage();
+        }
 
-        return response.getStatus() == BookingStatus.CONFIRMED
-                ? response.getMessage()
-                : "Sorry, something went wrong while booking your appointment.";
+        if (response.getStatus() == BookingStatus.SLOT_TAKEN) {
+            // Someone else grabbed this slot between the check and the write - ask for a new
+            // time rather than falsely reporting a completed booking.
+            session.setPendingBooking(new BookingRequest(pendingBooking.getPatientName(), null, null, pendingBooking.getEmail()));
+            session.setState(ConversationState.WAITING_FOR_BOOKING_DETAILS);
+            return response.getMessage();
+        }
+
+        session.setState(ConversationState.GREETING);
+        session.setPendingBooking(null);
+        return "Sorry, something went wrong while booking your appointment.";
+    }
+
+    private String startCancellation(UserSession session, BookingExtraction extraction) throws IOException {
+        if (extraction == null || extraction.getDate() == null || extraction.getTime() == null) {
+            session.setPendingBooking(null);
+            session.setState(ConversationState.WAITING_FOR_CANCELLATION_DETAILS);
+            return "Sure, what date and time was your appointment?";
+        }
+
+        return lookUpAppointmentToCancel(session, extraction.getDate(), extraction.getTime());
+    }
+
+    private String handleCancellationDetailsCollection(UserSession session, String message) throws IOException {
+        BookingExtraction details = intentService.extractBookingDetails(message, session.getConversationHistory());
+
+        if (details.getDate() == null || details.getTime() == null) {
+            return "Sorry, I didn't catch a specific date and time. Could you tell me when the appointment was? For example: \"Monday at 2pm\".";
+        }
+
+        return lookUpAppointmentToCancel(session, details.getDate(), details.getTime());
+    }
+
+    private String lookUpAppointmentToCancel(UserSession session, LocalDate date, LocalTime time) throws IOException {
+        BookingResponse response = bookingWorkflowService.findAppointmentToCancel(date, time);
+
+        if (response.getStatus() == BookingStatus.NOT_FOUND) {
+            session.setPendingBooking(null);
+            session.setState(ConversationState.WAITING_FOR_CANCELLATION_DETAILS);
+            return response.getMessage();
+        }
+
+        session.setPendingBooking(new BookingRequest(null, date, time, null));
+        session.setState(ConversationState.WAITING_FOR_CANCELLATION_CONFIRMATION);
+        return response.getMessage();
+    }
+
+    private String handleCancellationConfirmation(UserSession session, String message) throws IOException {
+        if (!message.trim().equalsIgnoreCase("yes")) {
+            session.setState(ConversationState.GREETING);
+            session.setPendingBooking(null);
+            return "No problem, your appointment is still scheduled. Anything else?";
+        }
+
+        BookingRequest pending = session.getPendingBooking();
+        BookingResponse response = bookingWorkflowService.cancelAppointment(pending.getAppointmentDate(), pending.getAppointmentTime());
+
+        session.setState(ConversationState.GREETING);
+        session.setPendingBooking(null);
+        return response.getMessage();
     }
 
 }

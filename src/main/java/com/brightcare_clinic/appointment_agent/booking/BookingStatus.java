@@ -8,7 +8,13 @@ public enum BookingStatus {
 
     SLOT_UNAVAILABLE,
 
+    SLOT_TAKEN,
+
     CONFIRMED,
+
+    NOT_FOUND,
+
+    CANCELLED,
 
     FAILED
 

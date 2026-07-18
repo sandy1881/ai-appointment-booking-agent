@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -18,16 +20,16 @@ public class IntentService {
     private final PromptBuilder promptBuilder;
     private final GeminiResponseParser geminiResponseParser;
 
-    public IntentResult detectIntent(String message) {
-        String prompt = promptBuilder.buildIntentExtractionPrompt(message);
+    public IntentResult detectIntent(String message, List<String> history) {
+        String prompt = promptBuilder.buildIntentExtractionPrompt(message, history);
         String rawJson = geminiService.analyzeMessage(prompt);
         IntentResult result = geminiResponseParser.parse(rawJson, message);
         log.info("Intent detected: {}", result.getIntentType());
         return result;
     }
 
-    public BookingExtraction extractBookingDetails(String message) {
-        String prompt = promptBuilder.buildBookingDetailsPrompt(message);
+    public BookingExtraction extractBookingDetails(String message, List<String> history) {
+        String prompt = promptBuilder.buildBookingDetailsPrompt(message, history);
         String rawJson = geminiService.analyzeMessage(prompt);
         return geminiResponseParser.parseBookingDetails(rawJson);
     }

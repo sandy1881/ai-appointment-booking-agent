@@ -5,6 +5,8 @@ import com.brightcare_clinic.appointment_agent.calendar.service.GoogleCalendarSe
 import com.brightcare_clinic.appointment_agent.email.dto.EmailRequest;
 import com.brightcare_clinic.appointment_agent.email.exception.EmailException;
 import com.brightcare_clinic.appointment_agent.email.service.EmailService;
+import com.google.api.services.calendar.model.Event;
+import com.google.api.services.calendar.model.EventAttendee;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -12,6 +14,8 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -63,6 +67,15 @@ public class BookingWorkflowService {
     public BookingResponse confirmAppointment(BookingRequest request) throws IOException {
         BookingStatus status = googleCalendarService.createAppointment(request);
         String slotDescription = BookingTimeFormatter.formatDateTime(request.getAppointmentDate(), request.getAppointmentTime());
+
+        if (status == BookingStatus.SLOT_TAKEN) {
+            log.warn("Booking conflict for {} on {} at {}", request.getPatientName(), request.getAppointmentDate(), request.getAppointmentTime());
+            return BookingResponse.builder()
+                    .status(BookingStatus.SLOT_TAKEN)
+                    .message("Sorry, " + slotDescription + " was just booked by someone else. What other date and time would you like?")
+                    .build();
+        }
+
         String message = "Done — you're booked for " + slotDescription + ". Anything else?";
 
         if (request.getEmail() != null) {
@@ -81,6 +94,67 @@ public class BookingWorkflowService {
                 .status(status)
                 .message(message)
                 .build();
+    }
+
+    public BookingResponse findAppointmentToCancel(LocalDate date, LocalTime time) throws IOException {
+        Optional<Event> event = googleCalendarService.findEvent(date, time);
+        String slotDescription = BookingTimeFormatter.formatDateTime(date, time);
+
+        if (event.isEmpty()) {
+            return BookingResponse.builder()
+                    .status(BookingStatus.NOT_FOUND)
+                    .message("I couldn't find an appointment for " + slotDescription + ". Could you double-check the date and time?")
+                    .build();
+        }
+
+        return BookingResponse.builder()
+                .status(BookingStatus.PENDING)
+                .message("Found your appointment for " + slotDescription + ". Shall I cancel it?")
+                .build();
+    }
+
+    public BookingResponse cancelAppointment(LocalDate date, LocalTime time) throws IOException {
+        Optional<Event> event = googleCalendarService.findEvent(date, time);
+        String slotDescription = BookingTimeFormatter.formatDateTime(date, time);
+
+        if (event.isEmpty()) {
+            return BookingResponse.builder()
+                    .status(BookingStatus.NOT_FOUND)
+                    .message("That appointment doesn't seem to be there anymore.")
+                    .build();
+        }
+
+        String attendeeEmail = attendeeEmail(event.get());
+        String patientName = patientNameFromSummary(event.get().getSummary());
+
+        BookingStatus status = googleCalendarService.cancelAppointment(date, time);
+        String message = "Your appointment for " + slotDescription + " has been cancelled.";
+
+        if (attendeeEmail != null) {
+            try {
+                emailService.sendCancellation(new EmailRequest(attendeeEmail, patientName, date, time));
+            } catch (EmailException e) {
+                log.error("Failed to send cancellation email to {}", attendeeEmail, e);
+                message += " We couldn't send a cancellation email, though.";
+            }
+        }
+
+        log.info("Cancelled appointment for {} on {} at {}", patientName, date, time);
+
+        return BookingResponse.builder()
+                .status(status)
+                .message(message)
+                .build();
+    }
+
+    private String attendeeEmail(Event event) {
+        List<EventAttendee> attendees = event.getAttendees();
+        return attendees != null && !attendees.isEmpty() ? attendees.get(0).getEmail() : null;
+    }
+
+    private String patientNameFromSummary(String summary) {
+        String prefix = "Appointment - ";
+        return summary != null && summary.startsWith(prefix) ? summary.substring(prefix.length()) : summary;
     }
 
 }

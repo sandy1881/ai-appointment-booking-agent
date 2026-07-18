@@ -4,6 +4,8 @@ import com.brightcare_clinic.appointment_agent.calendar.model.CalendarSlot;
 import com.brightcare_clinic.appointment_agent.calendar.service.GoogleCalendarService;
 import com.brightcare_clinic.appointment_agent.email.exception.EmailException;
 import com.brightcare_clinic.appointment_agent.email.service.EmailService;
+import com.google.api.services.calendar.model.Event;
+import com.google.api.services.calendar.model.EventAttendee;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -12,6 +14,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -118,6 +122,18 @@ class BookingWorkflowServiceTest {
     }
 
     @Test
+    void confirmAppointment_whenSlotTakenConcurrently_returnsGracefulMessageWithoutSendingEmail() throws Exception {
+        BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 3), LocalTime.of(14, 0), "rohan@example.com");
+        when(googleCalendarService.createAppointment(request)).thenReturn(BookingStatus.SLOT_TAKEN);
+
+        BookingResponse response = bookingWorkflowService.confirmAppointment(request);
+
+        assertEquals(BookingStatus.SLOT_TAKEN, response.getStatus());
+        assertEquals("Sorry, Monday 2:00pm was just booked by someone else. What other date and time would you like?", response.getMessage());
+        verify(emailService, never()).sendAppointmentConfirmation(any());
+    }
+
+    @Test
     void confirmAppointment_skipsEmail_whenNoEmailProvided() throws Exception {
         BookingRequest request = new BookingRequest("Rohan", LocalDate.of(2026, 8, 3), LocalTime.of(14, 0), null);
         when(googleCalendarService.createAppointment(request)).thenReturn(BookingStatus.CONFIRMED);
@@ -126,6 +142,72 @@ class BookingWorkflowServiceTest {
 
         assertEquals(BookingStatus.CONFIRMED, response.getStatus());
         verify(emailService, never()).sendAppointmentConfirmation(any());
+    }
+
+    @Test
+    void findAppointmentToCancel_whenFound_asksForConfirmation() throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        LocalTime time = LocalTime.of(14, 0);
+        when(googleCalendarService.findEvent(date, time)).thenReturn(Optional.of(new Event().setSummary("Appointment - Rohan")));
+
+        BookingResponse response = bookingWorkflowService.findAppointmentToCancel(date, time);
+
+        assertEquals(BookingStatus.PENDING, response.getStatus());
+        assertEquals("Found your appointment for Monday 2:00pm. Shall I cancel it?", response.getMessage());
+    }
+
+    @Test
+    void findAppointmentToCancel_whenNotFound_asksToDoubleCheck() throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        LocalTime time = LocalTime.of(14, 0);
+        when(googleCalendarService.findEvent(date, time)).thenReturn(Optional.empty());
+
+        BookingResponse response = bookingWorkflowService.findAppointmentToCancel(date, time);
+
+        assertEquals(BookingStatus.NOT_FOUND, response.getStatus());
+    }
+
+    @Test
+    void cancelAppointment_whenFound_deletesAndSendsCancellationEmail() throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        LocalTime time = LocalTime.of(14, 0);
+        Event event = new Event()
+                .setSummary("Appointment - Rohan")
+                .setAttendees(List.of(new EventAttendee().setEmail("rohan@example.com")));
+        when(googleCalendarService.findEvent(date, time)).thenReturn(Optional.of(event));
+        when(googleCalendarService.cancelAppointment(date, time)).thenReturn(BookingStatus.CANCELLED);
+
+        BookingResponse response = bookingWorkflowService.cancelAppointment(date, time);
+
+        assertEquals(BookingStatus.CANCELLED, response.getStatus());
+        assertEquals("Your appointment for Monday 2:00pm has been cancelled.", response.getMessage());
+        verify(emailService).sendCancellation(any());
+    }
+
+    @Test
+    void cancelAppointment_whenNoAttendeeEmail_skipsEmailWithoutFailing() throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        LocalTime time = LocalTime.of(14, 0);
+        Event event = new Event().setSummary("Appointment - Rohan");
+        when(googleCalendarService.findEvent(date, time)).thenReturn(Optional.of(event));
+        when(googleCalendarService.cancelAppointment(date, time)).thenReturn(BookingStatus.CANCELLED);
+
+        BookingResponse response = bookingWorkflowService.cancelAppointment(date, time);
+
+        assertEquals(BookingStatus.CANCELLED, response.getStatus());
+        verify(emailService, never()).sendCancellation(any());
+    }
+
+    @Test
+    void cancelAppointment_whenEventDisappearedSinceLookup_returnsNotFoundWithoutCallingCalendarCancel() throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 3);
+        LocalTime time = LocalTime.of(14, 0);
+        when(googleCalendarService.findEvent(date, time)).thenReturn(Optional.empty());
+
+        BookingResponse response = bookingWorkflowService.cancelAppointment(date, time);
+
+        assertEquals(BookingStatus.NOT_FOUND, response.getStatus());
+        verify(googleCalendarService, never()).cancelAppointment(any(), any());
     }
 
 }

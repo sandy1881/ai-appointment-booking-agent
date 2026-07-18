@@ -12,10 +12,6 @@
     "answer": "We don't accept walk-ins - appointments only."
   },
   {
-    "keywords": ["cancel", "cancellation", "reschedule"],
-    "answer": "To cancel or reschedule, please message the clinic directly."
-  },
-  {
     "keywords": ["parking", "park"],
     "answer": "Yes, parking is available on-site."
   }

@@ -15,6 +15,8 @@ import com.brightcare_clinic.appointment_agent.email.service.EmailService;
 import com.brightcare_clinic.appointment_agent.email.service.EmailTemplateService;
 import com.brightcare_clinic.appointment_agent.faq.repository.FaqRepository;
 import com.brightcare_clinic.appointment_agent.faq.service.FaqService;
+import com.google.api.services.calendar.model.Event;
+import com.google.api.services.calendar.model.EventAttendee;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.validation.Validation;
@@ -22,15 +24,18 @@ import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.javamail.JavaMailSender;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,6 +63,9 @@ class AgentOrchestratorIntegrationTest {
     @Mock
     private JavaMailSender mailSender;
 
+    @TempDir
+    private Path tempDir;
+
     private AgentOrchestratorService agentOrchestratorService;
 
     @BeforeEach
@@ -83,7 +91,8 @@ class AgentOrchestratorIntegrationTest {
         BookingWorkflowService bookingWorkflowService = new BookingWorkflowService(googleCalendarService, emailService);
 
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
-        agentOrchestratorService = new AgentOrchestratorService(intentService, new SessionService(), bookingWorkflowService, faqService, validator);
+        SessionService sessionService = new SessionService(objectMapper, tempDir.resolve("sessions.json").toString());
+        agentOrchestratorService = new AgentOrchestratorService(intentService, sessionService, bookingWorkflowService, faqService, validator);
     }
 
     @Test
@@ -131,6 +140,31 @@ class AgentOrchestratorIntegrationTest {
 
         assertTrue(reply.contains("4:00pm"));
         verify(googleCalendarService, org.mockito.Mockito.never()).createAppointment(any());
+    }
+
+    @Test
+    void cancellationFlow_findsAppointmentThenCancelsAndEmailsOnConfirmation() throws Exception {
+        Long chatId = 555002L;
+        LocalDate monday = LocalDate.of(2026, 8, 3);
+        Event existing = new Event()
+                .setSummary("Appointment - Rohan")
+                .setId("evt-1")
+                .setAttendees(List.of(new EventAttendee().setEmail("rohan@example.com")));
+
+        when(geminiService.analyzeMessage(anyString())).thenReturn("""
+                {"intent":"cancel_appointment","patientName":null,"date":"2026-08-03","time":"14:00","email":null}
+                """);
+        when(googleCalendarService.findEvent(monday, LocalTime.of(14, 0))).thenReturn(Optional.of(existing));
+        when(googleCalendarService.cancelAppointment(monday, LocalTime.of(14, 0))).thenReturn(BookingStatus.CANCELLED);
+
+        String lookupReply = agentOrchestratorService.processMessage(chatId, "Cancel my Monday 2pm appointment");
+        assertTrue(lookupReply.contains("Shall I cancel it"));
+
+        String cancelReply = agentOrchestratorService.processMessage(chatId, "yes");
+        assertTrue(cancelReply.contains("has been cancelled"));
+
+        verify(googleCalendarService).cancelAppointment(monday, LocalTime.of(14, 0));
+        verify(mailSender).send(any(MimeMessage.class));
     }
 
 }

@@ -35,6 +35,19 @@ class GeminiResponseParserTest {
     }
 
     @Test
+    void parse_cancelAppointmentWithDateTime_extractsBookingDetails() {
+        String json = """
+                {"intent":"cancel_appointment","patientName":null,"date":"2026-08-01","time":"15:00","email":null}
+                """;
+
+        IntentResult result = parser.parse(json, "cancel my Monday 3pm appointment");
+
+        assertEquals(IntentType.CANCEL_APPOINTMENT, result.getIntentType());
+        assertEquals(LocalDate.of(2026, 8, 1), result.getBookingExtraction().getDate());
+        assertEquals(LocalTime.of(15, 0), result.getBookingExtraction().getTime());
+    }
+
+    @Test
     void parse_greetingIntent_hasNoBookingExtraction() {
         String json = """
                 {"intent":"greeting","patientName":null,"date":null,"time":null,"email":null}

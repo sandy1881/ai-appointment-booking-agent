@@ -23,6 +23,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @Service
@@ -32,6 +34,13 @@ public class GoogleCalendarService {
     private final ObjectProvider<Calendar> calendarClientProvider;
     private final BookingProperties bookingProperties;
     private final ClinicProperties clinicProperties;
+
+    // Serializes check-then-write for appointment creation within this JVM instance, so two
+    // near-simultaneous bookings for the same slot can't both pass the conflict check before
+    // either one writes. A single coarse-grained lock is enough at this app's scale (one small
+    // clinic, infrequent bookings) - a per-slot lock or distributed lock would be over-engineering
+    // for a single-instance deployment with no horizontal scaling.
+    private final ReentrantLock bookingLock = new ReentrantLock();
 
     public Calendar getCalendarClient() {
         return calendarClientProvider.getObject();
@@ -85,38 +94,71 @@ public class GoogleCalendarService {
     }
 
     public BookingStatus createAppointment(BookingRequest request) throws IOException {
-        log.info("Creating calendar event for {} on {} at {}", request.getPatientName(), request.getAppointmentDate(), request.getAppointmentTime());
+        LocalDate date = request.getAppointmentDate();
+        LocalTime time = request.getAppointmentTime();
 
-        LocalDateTime start = request.getAppointmentDate().atTime(request.getAppointmentTime());
-        LocalDateTime end = start.plusMinutes(bookingProperties.getSlotDuration());
-        String zoneId = zoneId().getId();
+        bookingLock.lock();
+        try {
+            // Re-check right before writing: the original availability check may have happened
+            // several conversation turns ago, so another booking (or a manual calendar edit)
+            // could have taken this slot in the meantime.
+            if (hasConflict(date, time)) {
+                log.warn("Slot no longer available for {} on {} at {} - booked concurrently", request.getPatientName(), date, time);
+                return BookingStatus.SLOT_TAKEN;
+            }
 
-        Event event = new Event()
-                .setSummary("Appointment - " + request.getPatientName())
-                .setStart(new EventDateTime().setDateTime(toDateTime(start)).setTimeZone(zoneId))
-                .setEnd(new EventDateTime().setDateTime(toDateTime(end)).setTimeZone(zoneId));
+            log.info("Creating calendar event for {} on {} at {}", request.getPatientName(), date, time);
 
-        if (request.getEmail() != null) {
-            event.setAttendees(List.of(new EventAttendee().setEmail(request.getEmail())));
+            LocalDateTime start = date.atTime(time);
+            LocalDateTime end = start.plusMinutes(bookingProperties.getSlotDuration());
+            String zoneId = zoneId().getId();
+
+            Event event = new Event()
+                    .setSummary("Appointment - " + request.getPatientName())
+                    .setStart(new EventDateTime().setDateTime(toDateTime(start)).setTimeZone(zoneId))
+                    .setEnd(new EventDateTime().setDateTime(toDateTime(end)).setTimeZone(zoneId));
+
+            if (request.getEmail() != null) {
+                event.setAttendees(List.of(new EventAttendee().setEmail(request.getEmail())));
+            }
+
+            getCalendarClient().events().insert(CalendarConstants.PRIMARY_CALENDAR_ID, event).execute();
+            log.info("Calendar event created for {}", request.getPatientName());
+            return BookingStatus.CONFIRMED;
+        } finally {
+            bookingLock.unlock();
+        }
+    }
+
+    public Optional<Event> findEvent(LocalDate date, LocalTime time) throws IOException {
+        return listEventsAt(date, time).stream().findFirst();
+    }
+
+    public BookingStatus cancelAppointment(LocalDate date, LocalTime time) throws IOException {
+        Optional<Event> event = findEvent(date, time);
+        if (event.isEmpty()) {
+            return BookingStatus.NOT_FOUND;
         }
 
-        getCalendarClient().events().insert(CalendarConstants.PRIMARY_CALENDAR_ID, event).execute();
-        log.info("Calendar event created for {}", request.getPatientName());
-        return BookingStatus.CONFIRMED;
+        getCalendarClient().events().delete(CalendarConstants.PRIMARY_CALENDAR_ID, event.get().getId()).execute();
+        log.info("Cancelled calendar event {} on {} at {}", event.get().getId(), date, time);
+        return BookingStatus.CANCELLED;
     }
 
     private boolean hasConflict(LocalDate date, LocalTime time) throws IOException {
+        return !listEventsAt(date, time).isEmpty();
+    }
+
+    private List<Event> listEventsAt(LocalDate date, LocalTime time) throws IOException {
         DateTime timeMin = toDateTime(date, time);
         DateTime timeMax = toDateTime(date, time.plusMinutes(bookingProperties.getSlotDuration()));
 
-        List<Event> events = getCalendarClient().events().list(CalendarConstants.PRIMARY_CALENDAR_ID)
+        return getCalendarClient().events().list(CalendarConstants.PRIMARY_CALENDAR_ID)
                 .setTimeMin(timeMin)
                 .setTimeMax(timeMax)
                 .setSingleEvents(true)
                 .execute()
                 .getItems();
-
-        return !events.isEmpty();
     }
 
     private DateTime toDateTime(LocalDate date, LocalTime time) {

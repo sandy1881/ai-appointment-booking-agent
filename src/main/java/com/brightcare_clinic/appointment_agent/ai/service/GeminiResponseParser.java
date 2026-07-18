@@ -23,7 +23,7 @@ public class GeminiResponseParser {
     public IntentResult parse(String rawJson, String originalMessage) {
         JsonNode node = readTree(rawJson);
         IntentType intentType = parseIntentType(textOrNull(node, "intent"));
-        BookingExtraction bookingExtraction = intentType == IntentType.BOOK_APPOINTMENT
+        BookingExtraction bookingExtraction = intentType == IntentType.BOOK_APPOINTMENT || intentType == IntentType.CANCEL_APPOINTMENT
                 ? parseBookingExtraction(node)
                 : null;
 
