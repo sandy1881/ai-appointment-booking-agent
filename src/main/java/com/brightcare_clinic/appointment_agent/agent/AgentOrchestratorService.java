@@ -12,6 +12,8 @@ import com.brightcare_clinic.appointment_agent.calendar.model.CalendarSlot;
 import com.brightcare_clinic.appointment_agent.conversation.ConversationState;
 import com.brightcare_clinic.appointment_agent.conversation.SessionService;
 import com.brightcare_clinic.appointment_agent.conversation.UserSession;
+import com.brightcare_clinic.appointment_agent.faq.dto.FaqResponse;
+import com.brightcare_clinic.appointment_agent.faq.service.FaqService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,7 @@ public class AgentOrchestratorService {
     private final IntentService intentService;
     private final SessionService sessionService;
     private final BookingWorkflowService bookingWorkflowService;
+    private final FaqService faqService;
 
     public String processMessage(Long chatId, String message) {
         UserSession session = sessionService.getSession(chatId);
@@ -52,12 +55,17 @@ public class AgentOrchestratorService {
     }
 
     private String handleByIntent(UserSession session, String message) throws IOException {
+        FaqResponse faqResponse = faqService.findAnswer(message);
+        if (faqResponse.matched()) {
+            return faqResponse.answer();
+        }
+
         IntentResult intentResult = intentService.detectIntent(message);
 
         return switch (intentResult.getIntentType()) {
             case GREETING -> "Hello! Welcome to BrightCare Clinic. How can I help you today?";
             case BOOK_APPOINTMENT -> startBooking(session, intentResult.getBookingExtraction());
-            case FAQ -> "Let me help answer your question.";
+            case FAQ -> "I don't have a specific answer for that, but feel free to call the clinic directly.";
             default -> "I'm not sure I understood that. Could you rephrase?";
         };
     }
