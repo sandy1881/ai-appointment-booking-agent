@@ -1,6 +1,14 @@
 spring:
   application:
     name: appointment-agent
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${EMAIL_USERNAME}
+    password: ${EMAIL_PASSWORD}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
 
 server:
   port: 8080
@@ -20,5 +28,5 @@ google:
   credentials-path: ${GOOGLE_CREDENTIALS_PATH}
 
 email:
-  username: ${EMAIL_USERNAME}
-  password: ${EMAIL_PASSWORD}
+  from: ${EMAIL_USERNAME}
+  from-name: BrightCare Clinic

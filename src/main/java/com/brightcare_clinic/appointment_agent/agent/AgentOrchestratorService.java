@@ -99,13 +99,13 @@ public class AgentOrchestratorService {
         BookingRequest pendingBooking = session.getPendingBooking();
         pendingBooking.setEmail(message.trim());
 
-        BookingStatus status = bookingWorkflowService.confirmAppointment(pendingBooking);
+        BookingResponse response = bookingWorkflowService.confirmAppointment(pendingBooking);
 
         session.setState(ConversationState.BOOKING_COMPLETED);
         session.setPendingBooking(null);
 
-        return status == BookingStatus.CONFIRMED
-                ? "Thanks! Your appointment has been booked."
+        return response.getStatus() == BookingStatus.CONFIRMED
+                ? response.getMessage()
                 : "Sorry, something went wrong while booking your appointment.";
     }
 
