@@ -8,6 +8,8 @@ public enum ConversationState {
 
     WAITING_FOR_SLOT_CONFIRMATION,
 
+    WAITING_FOR_NAME,
+
     WAITING_FOR_EMAIL,
 
     BOOKING_COMPLETED,

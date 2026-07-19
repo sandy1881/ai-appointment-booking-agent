@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -148,6 +149,17 @@ class GoogleCalendarServiceTest {
 
         assertFalse(slot.isAvailable());
         assertEquals(LocalDate.of(2026, 8, 1), slot.getDate());
+    }
+
+    @Test
+    void findNextAvailableSlot_whenRequestedTimeIsLastSlotOfDay_returnsUnavailableWithoutCallingCalendar() throws Exception {
+        // Requesting 17:30 (the last slot of the day itself) leaves no later candidate at all -
+        // the search loop must exit on its very first check, without even calling the calendar.
+        CalendarSlot slot = googleCalendarService.findNextAvailableSlot(LocalDate.of(2026, 8, 1), LocalTime.of(17, 30));
+
+        assertFalse(slot.isAvailable());
+        assertEquals(LocalDate.of(2026, 8, 1), slot.getDate());
+        verifyNoInteractions(calendar);
     }
 
     @Test

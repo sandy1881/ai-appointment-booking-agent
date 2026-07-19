@@ -111,6 +111,8 @@ class AgentOrchestratorIntegrationTest {
         String bookingReply = agentOrchestratorService.processMessage(chatId, "Book an appointment tomorrow at 3pm, my name is Rohan, email rohan@example.com");
         assertTrue(bookingReply.contains("available"));
 
+        // Name was already given upfront, so slot confirmation should skip straight to email
+        // rather than asking again.
         String confirmationReply = agentOrchestratorService.processMessage(chatId, "yes");
         assertEquals("Great! What's your email address?", confirmationReply);
 
@@ -119,6 +121,59 @@ class AgentOrchestratorIntegrationTest {
 
         verify(googleCalendarService).createAppointment(any());
         verify(mailSender).send(any(MimeMessage.class));
+    }
+
+    @Test
+    void slotConfirmation_acceptsNaturalAffirmativePhrasing_notJustBareYes() throws Exception {
+        Long chatId = 555003L;
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+
+        when(geminiService.analyzeMessage(anyString())).thenReturn("""
+                {"intent":"book_appointment","patientName":"Sandy","date":"%s","time":"17:00","email":"sandy@example.com"}
+                """.formatted(tomorrow));
+        when(googleCalendarService.isWithinBusinessHours(tomorrow, LocalTime.of(17, 0))).thenReturn(true);
+        when(googleCalendarService.checkAvailability(tomorrow, LocalTime.of(17, 0)))
+                .thenReturn(new CalendarSlot(tomorrow, LocalTime.of(17, 0), LocalTime.of(17, 30), true, "Requested slot is available."));
+
+        agentOrchestratorService.processMessage(chatId, "book an appointment tomorrow at 5pm");
+
+        // Regression test: "yes please" used to fall through to the decline branch because
+        // handleSlotConfirmation only accepted the exact string "yes".
+        String confirmationReply = agentOrchestratorService.processMessage(chatId, "yes please");
+
+        assertEquals("Great! What's your email address?", confirmationReply);
+    }
+
+    @Test
+    void bookingFlow_alwaysAsksForNameBeforeEmail_evenWhenNotVolunteeredUpfront() throws Exception {
+        Long chatId = 555004L;
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+
+        when(geminiService.analyzeMessage(anyString())).thenReturn("""
+                {"intent":"book_appointment","patientName":null,"date":"%s","time":"15:00","email":null}
+                """.formatted(tomorrow));
+        when(googleCalendarService.isWithinBusinessHours(tomorrow, LocalTime.of(15, 0))).thenReturn(true);
+        when(googleCalendarService.checkAvailability(tomorrow, LocalTime.of(15, 0)))
+                .thenReturn(new CalendarSlot(tomorrow, LocalTime.of(15, 0), LocalTime.of(15, 30), true, "Requested slot is available."));
+        when(googleCalendarService.createAppointment(any())).thenReturn(BookingStatus.CONFIRMED);
+
+        // Regression test: previously the bot never asked for the patient's name unless it
+        // happened to be volunteered upfront, so createAppointment could receive a null name
+        // and the calendar event summary became "Appointment - null".
+        agentOrchestratorService.processMessage(chatId, "Book an appointment tomorrow at 3pm");
+
+        String confirmationReply = agentOrchestratorService.processMessage(chatId, "yes");
+        assertEquals("Great! What's your name?", confirmationReply);
+
+        String nameReply = agentOrchestratorService.processMessage(chatId, "Priya");
+        assertEquals("Thanks, Priya! What's your email address?", nameReply);
+
+        agentOrchestratorService.processMessage(chatId, "priya@example.com");
+
+        org.mockito.ArgumentCaptor<com.brightcare_clinic.appointment_agent.booking.BookingRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(com.brightcare_clinic.appointment_agent.booking.BookingRequest.class);
+        verify(googleCalendarService).createAppointment(captor.capture());
+        assertEquals("Priya", captor.getValue().getPatientName());
     }
 
     @Test

@@ -61,7 +61,7 @@ Turn on 2-Step Verification on the Gmail account you want to send from, then gen
 ```bash
 ./mvnw test
 ```
-runs the suite — 55 tests, all mocking out the actual Calendar/Gemini/SMTP calls so it doesn't need any of the above configured to run.
+runs the suite — 58 tests, all mocking out the actual Calendar/Gemini/SMTP calls so it doesn't need any of the above configured to run.
 
 ## Running it with Docker
 
@@ -81,7 +81,9 @@ docker compose up -d
 
 **FAQ lookup happens before Gemini gets involved.** A message is checked against a small keyword list in `faq.json` first; if it matches, that's the answer, no API call made. Only a miss falls through to Gemini for intent classification. Cuts cost and latency for the handful of questions that have one fixed correct answer, and there's nothing for the model to hallucinate on those.
 
-**The conversation is a state machine, not one big prompt.** Each chat has an explicit state — `GREETING`, `WAITING_FOR_BOOKING_DETAILS`, `WAITING_FOR_SLOT_CONFIRMATION`, `WAITING_FOR_EMAIL`, `BOOKING_COMPLETED`, plus a matching pair (`WAITING_FOR_CANCELLATION_DETAILS`, `WAITING_FOR_CANCELLATION_CONFIRMATION`) for cancelling — tracked per chat ID. Gemini only ever has to answer whatever's relevant to the current step — classify the intent, or pull a date/time out of a short reply — instead of having to reconstruct the whole conversation itself. That's really what makes "yes" reliably resolve to whatever slot was actually just proposed.
+**The conversation is a state machine, not one big prompt.** Each chat has an explicit state — `GREETING`, `WAITING_FOR_BOOKING_DETAILS`, `WAITING_FOR_SLOT_CONFIRMATION`, `WAITING_FOR_NAME`, `WAITING_FOR_EMAIL`, `BOOKING_COMPLETED`, plus a matching pair (`WAITING_FOR_CANCELLATION_DETAILS`, `WAITING_FOR_CANCELLATION_CONFIRMATION`) for cancelling — tracked per chat ID. Gemini only ever has to answer whatever's relevant to the current step — classify the intent, or pull a date/time out of a short reply — instead of having to reconstruct the whole conversation itself. That's really what makes "yes" reliably resolve to whatever slot was actually just proposed.
+
+**The patient's name only gets asked for if it's actually missing.** The calendar event summary is literally `"Appointment - " + patientName`, so if the user never mentioned their name and Gemini had nothing to extract, this used to silently produce `"Appointment - null"` on the calendar. `WAITING_FOR_NAME` closes that gap — but only when `patientName` is still null after slot confirmation. If the name was already given upfront, the bot skips straight to email instead of asking again; this keeps the required "yes → nearest slot" conversation from the brief exactly as short as it's specified when a name isn't part of that exchange at all.
 
 **Each integration is boxed in behind one class.** `GoogleCalendarService` is the only thing that knows about the Calendar API; `EmailService` is the only thing that knows about SMTP. `BookingWorkflowService` just calls `checkAvailability()` / `createAppointment()` / `sendAppointmentConfirmation()` — swapping either provider later is a one-class change, not a rewrite of the booking logic.
 
@@ -92,6 +94,8 @@ docker compose up -d
 **Concurrent bookings are actually handled, not just checked once and forgotten.** The gap between "checked available" and "confirmed" can be several messages long in a real conversation, so `createAppointment` re-checks for a conflict right before writing, and the whole check-then-write is behind a lock so two people confirming the same slot at nearly the same moment can't both get through. Whoever loses the race gets told the slot was just taken and gets asked for a new time — the loser doesn't just fail silently or double-book the calendar. I proved this actually does something by deliberately pulling the lock out and watching the concurrency test fail 8/8 times, then putting it back and watching it pass consistently.
 
 **Global exception handling exists but has nothing to guard right now.** I built a `@RestControllerAdvice` while adding a couple of temporary `/calendar/*` test endpoints during development, mapping the various exception types to proper JSON error responses. Those test endpoints are gone now that I'm done with them, so the handler's just sitting there ready for whenever there's an actual REST surface again.
+
+**There's a landing page at `/`.** Once this is actually running somewhere other than my laptop, `/actuator/health` tells you the app's up but not what it is. `HomeController` serves a small styled HTML page ("Welcome to BrightCare Clinic") at the root instead, so hitting the deployed URL in a browser is enough to confirm the right thing is running.
 
 **Gemini gets the last few turns, not just the current message.** Each `UserSession` keeps a bounded rolling history (last 8 lines, ~4 exchanges) of what was said. Both the intent-classification prompt and the follow-up date/time extraction prompt include it, so a reply like "the later one" can actually be resolved against what the bot just offered, instead of being evaluated in a vacuum.
 

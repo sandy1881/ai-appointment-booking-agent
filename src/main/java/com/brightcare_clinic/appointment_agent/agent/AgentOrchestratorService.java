@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Arrays;
 import java.util.Set;
 
 @Slf4j
@@ -36,6 +37,15 @@ public class AgentOrchestratorService {
     private final FaqService faqService;
     private final Validator validator;
 
+    // "yes" alone is too strict for how people actually reply - "yes please", "yeah", "sure",
+    // etc. all mean the same thing but fail an exact-equality check. Word-level, not a raw
+    // substring check, so this doesn't fire on unrelated words that happen to contain these.
+    private static final Set<String> AFFIRMATIVE_WORDS = Set.of("yes", "yeah", "yep", "yup", "sure", "ok", "okay", "confirm", "correct");
+
+    private boolean isAffirmative(String message) {
+        return Arrays.stream(message.toLowerCase().split("\\W+")).anyMatch(AFFIRMATIVE_WORDS::contains);
+    }
+
     public String processMessage(Long chatId, String message) {
         UserSession session = sessionService.getSession(chatId);
         String response;
@@ -44,6 +54,7 @@ public class AgentOrchestratorService {
             response = switch (session.getState()) {
                 case WAITING_FOR_BOOKING_DETAILS -> handleBookingDetailsCollection(session, message);
                 case WAITING_FOR_SLOT_CONFIRMATION -> handleSlotConfirmation(session, message);
+                case WAITING_FOR_NAME -> handleNameCollection(session, message);
                 case WAITING_FOR_EMAIL -> handleEmailCollection(session, message);
                 case WAITING_FOR_CANCELLATION_DETAILS -> handleCancellationDetailsCollection(session, message);
                 case WAITING_FOR_CANCELLATION_CONFIRMATION -> handleCancellationConfirmation(session, message);
@@ -133,13 +144,33 @@ public class AgentOrchestratorService {
     }
 
     private String handleSlotConfirmation(UserSession session, String message) {
-        if (message.trim().equalsIgnoreCase("yes")) {
+        if (isAffirmative(message)) {
+            String patientName = session.getPendingBooking().getPatientName();
+            if (patientName == null || patientName.isBlank()) {
+                session.setState(ConversationState.WAITING_FOR_NAME);
+                return "Great! What's your name?";
+            }
             session.setState(ConversationState.WAITING_FOR_EMAIL);
             return "Great! What's your email address?";
         }
         session.setState(ConversationState.GREETING);
         session.setPendingBooking(null);
         return "No problem, let's start over. How can I help you today?";
+    }
+
+    private String handleNameCollection(UserSession session, String message) {
+        String name = message.trim();
+
+        BookingRequest pendingBooking = session.getPendingBooking();
+        pendingBooking.setPatientName(name);
+
+        Set<ConstraintViolation<BookingRequest>> violations = validator.validateProperty(pendingBooking, "patientName");
+        if (!violations.isEmpty()) {
+            return "Sorry, I didn't catch that. Could you tell me your name?";
+        }
+
+        session.setState(ConversationState.WAITING_FOR_EMAIL);
+        return "Thanks, " + name + "! What's your email address?";
     }
 
     private String handleEmailCollection(UserSession session, String message) throws IOException {
@@ -208,7 +239,7 @@ public class AgentOrchestratorService {
     }
 
     private String handleCancellationConfirmation(UserSession session, String message) throws IOException {
-        if (!message.trim().equalsIgnoreCase("yes")) {
+        if (!isAffirmative(message)) {
             session.setState(ConversationState.GREETING);
             session.setPendingBooking(null);
             return "No problem, your appointment is still scheduled. Anything else?";
