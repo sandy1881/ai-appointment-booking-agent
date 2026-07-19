@@ -70,4 +70,12 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("Would you like 3pm or 4pm?"));
     }
 
+    @Test
+    void buildCancellationDetailsPrompt_describesCancellationNotBooking() {
+        String prompt = promptBuilder.buildCancellationDetailsPrompt("Monday at 2pm", List.of());
+
+        assertTrue(prompt.contains("cancel an existing clinic appointment"));
+        assertFalse(prompt.contains("booking a clinic appointment"));
+    }
+
 }

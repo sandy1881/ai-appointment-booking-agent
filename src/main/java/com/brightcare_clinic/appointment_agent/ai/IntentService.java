@@ -34,4 +34,10 @@ public class IntentService {
         return geminiResponseParser.parseBookingDetails(rawJson);
     }
 
+    public BookingExtraction extractCancellationDetails(String message, List<String> history) {
+        String prompt = promptBuilder.buildCancellationDetailsPrompt(message, history);
+        String rawJson = geminiService.analyzeMessage(prompt);
+        return geminiResponseParser.parseBookingDetails(rawJson);
+    }
+
 }

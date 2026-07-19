@@ -44,6 +44,22 @@ public class PromptBuilder {
                 """.formatted(historyBlock(history), LocalDate.now(), message);
     }
 
+    public String buildCancellationDetailsPrompt(String message, List<String> history) {
+        return """
+                The user wants to cancel an existing clinic appointment and was just asked what date and time that appointment was booked for.
+
+                %s
+                Extract the appointment date and time from their reply, resolved relative to today's date which is %s.
+                Use the conversation above for context if their reply refers back to something already discussed (e.g. "the later one").
+
+                Return ONLY a JSON object with exactly these keys:
+                - date (ISO format YYYY-MM-DD, or null if not mentioned or unclear)
+                - time (24-hour format HH:mm, or null if not mentioned or unclear)
+
+                Current message: "%s"
+                """.formatted(historyBlock(history), LocalDate.now(), message);
+    }
+
     private String historyBlock(List<String> history) {
         if (history == null || history.isEmpty()) {
             return "";

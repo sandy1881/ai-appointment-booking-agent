@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 
 @Slf4j
@@ -42,8 +43,31 @@ public class AgentOrchestratorService {
     // substring check, so this doesn't fire on unrelated words that happen to contain these.
     private static final Set<String> AFFIRMATIVE_WORDS = Set.of("yes", "yeah", "yep", "yup", "sure", "ok", "okay", "confirm", "correct");
 
+    // Cancellation confirmation ("Shall I cancel it?") gets natural replies like "cancel" or
+    // "cancel it" that aren't affirmative in the booking-confirmation sense - "cancel" alone would
+    // mean decline if said to "Shall I book it?", so this is kept separate from AFFIRMATIVE_WORDS
+    // rather than adding "cancel" there and breaking the booking-confirmation flow.
+    private static final Set<String> CANCELLATION_CONFIRMATION_WORDS = Set.of("cancel", "delete", "remove");
+
+    // Guards CANCELLATION_CONFIRMATION_WORDS against negated replies like "no, don't cancel it" -
+    // without this, the word "cancel" in that sentence would be misread as confirming the
+    // cancellation instead of declining it. ("don't" splits into "don"/"t" on \W+.)
+    private static final Set<String> NEGATIVE_WORDS = Set.of("no", "nope", "not", "don", "never", "keep");
+
+    private List<String> words(String message) {
+        return Arrays.asList(message.toLowerCase().split("\\W+"));
+    }
+
     private boolean isAffirmative(String message) {
-        return Arrays.stream(message.toLowerCase().split("\\W+")).anyMatch(AFFIRMATIVE_WORDS::contains);
+        return words(message).stream().anyMatch(AFFIRMATIVE_WORDS::contains);
+    }
+
+    private boolean confirmsCancellation(String message) {
+        List<String> tokens = words(message);
+        if (tokens.stream().anyMatch(NEGATIVE_WORDS::contains)) {
+            return false;
+        }
+        return tokens.stream().anyMatch(AFFIRMATIVE_WORDS::contains) || tokens.stream().anyMatch(CANCELLATION_CONFIRMATION_WORDS::contains);
     }
 
     public String processMessage(Long chatId, String message) {
@@ -216,7 +240,7 @@ public class AgentOrchestratorService {
     }
 
     private String handleCancellationDetailsCollection(UserSession session, String message) throws IOException {
-        BookingExtraction details = intentService.extractBookingDetails(message, session.getConversationHistory());
+        BookingExtraction details = intentService.extractCancellationDetails(message, session.getConversationHistory());
 
         if (details.getDate() == null || details.getTime() == null) {
             return "Sorry, I didn't catch a specific date and time. Could you tell me when the appointment was? For example: \"Monday at 2pm\".";
@@ -240,7 +264,7 @@ public class AgentOrchestratorService {
     }
 
     private String handleCancellationConfirmation(UserSession session, String message) throws IOException {
-        if (!isAffirmative(message)) {
+        if (!confirmsCancellation(message)) {
             session.setState(ConversationState.GREETING);
             session.setPendingBooking(null);
             return "No problem, your appointment is still scheduled. Anything else?";
