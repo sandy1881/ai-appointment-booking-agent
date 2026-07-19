@@ -89,6 +89,7 @@ public class AgentOrchestratorService {
             case BOOK_APPOINTMENT -> startBooking(session, intentResult.getBookingExtraction());
             case CANCEL_APPOINTMENT -> startCancellation(session, intentResult.getBookingExtraction());
             case FAQ -> "I don't have a specific answer for that, but feel free to call the clinic directly.";
+            case CLOSING -> "You're welcome! Have a great day.";
             default -> "I'm not sure I understood that. Could you rephrase?";
         };
     }

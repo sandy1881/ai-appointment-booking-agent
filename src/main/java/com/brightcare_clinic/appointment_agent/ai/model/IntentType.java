@@ -10,6 +10,8 @@ public enum IntentType {
 
     FAQ,
 
+    CLOSING,
+
     GENERAL
 
 }

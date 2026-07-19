@@ -198,6 +198,33 @@ class AgentOrchestratorIntegrationTest {
     }
 
     @Test
+    void afterBooking_closingRemark_getsGracefulReplyNotRephraseFallback() throws Exception {
+        Long chatId = 555005L;
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+
+        when(geminiService.analyzeMessage(anyString()))
+                .thenReturn("""
+                        {"intent":"book_appointment","patientName":"Sandy","date":"%s","time":"16:00","email":"sandy@example.com"}
+                        """.formatted(tomorrow))
+                .thenReturn("""
+                        {"intent":"closing","patientName":null,"date":null,"time":null,"email":null}
+                        """);
+        when(googleCalendarService.isWithinBusinessHours(tomorrow, LocalTime.of(16, 0))).thenReturn(true);
+        when(googleCalendarService.checkAvailability(tomorrow, LocalTime.of(16, 0)))
+                .thenReturn(new CalendarSlot(tomorrow, LocalTime.of(16, 0), LocalTime.of(16, 30), true, "Requested slot is available."));
+        when(googleCalendarService.createAppointment(any())).thenReturn(BookingStatus.CONFIRMED);
+
+        agentOrchestratorService.processMessage(chatId, "Book an appointment tomorrow at 4pm, my name is Sandy, email sandy@example.com");
+        agentOrchestratorService.processMessage(chatId, "yes");
+        agentOrchestratorService.processMessage(chatId, "sandy@example.com");
+
+        // Regression test: "no thanks" after a completed booking used to hit the GENERAL
+        // fallback ("I'm not sure I understood that...") instead of just acknowledging.
+        String closingReply = agentOrchestratorService.processMessage(chatId, "no thanks");
+        assertEquals("You're welcome! Have a great day.", closingReply);
+    }
+
+    @Test
     void cancellationFlow_findsAppointmentThenCancelsAndEmailsOnConfirmation() throws Exception {
         Long chatId = 555002L;
         LocalDate monday = LocalDate.of(2026, 8, 3);

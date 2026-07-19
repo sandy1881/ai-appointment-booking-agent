@@ -34,6 +34,7 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("BOOK_APPOINTMENT"));
         assertTrue(prompt.contains("CANCEL_APPOINTMENT"));
         assertTrue(prompt.contains("FAQ"));
+        assertTrue(prompt.contains("CLOSING"));
         assertTrue(prompt.contains("GENERAL"));
     }
 

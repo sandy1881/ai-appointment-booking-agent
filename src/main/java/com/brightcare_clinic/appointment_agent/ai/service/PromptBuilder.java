@@ -13,7 +13,8 @@ public class PromptBuilder {
                 You are an intent classifier and information extractor for a clinic appointment booking assistant.
 
                 %s
-                Classify the user's message into exactly one of these intents: GREETING, BOOK_APPOINTMENT, CANCEL_APPOINTMENT, FAQ, GENERAL.
+                Classify the user's message into exactly one of these intents: GREETING, BOOK_APPOINTMENT, CANCEL_APPOINTMENT, FAQ, CLOSING, GENERAL.
+                Use CLOSING for messages that are just ending the conversation with no new request, such as "thanks", "no thanks", "thank you", "that's all", "bye", "nope, that's it".
 
                 If the intent is BOOK_APPOINTMENT or CANCEL_APPOINTMENT, also extract:
                 - patientName (string, or null if not mentioned)
