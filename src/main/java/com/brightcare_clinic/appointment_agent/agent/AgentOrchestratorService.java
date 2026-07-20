@@ -107,17 +107,29 @@ public class AgentOrchestratorService {
         } catch (IOException e) {
             log.error("Calendar operation failed for chatId {}", session.getChatId(), e);
             response = "Sorry, I couldn't reach the calendar right now. Please try again shortly.";
+            resetToSafeState(session);
         } catch (GeminiException e) {
             log.error("Gemini call failed for chatId {}", session.getChatId(), e);
             response = "Sorry, I'm having trouble understanding right now. Please try again shortly.";
+            resetToSafeState(session);
         } catch (RuntimeException e) {
             log.error("Unexpected error while processing message for chatId {}", session.getChatId(), e);
             response = "Sorry, something went wrong on our end. Please try again shortly.";
+            resetToSafeState(session);
         }
 
         session.recordTurn(message, response);
         sessionService.saveSession(session);
         return response;
+    }
+
+    // Without this, a mid-flow failure (e.g. a flaky Gemini call while collecting cancellation
+    // date/time) leaves the session wedged in whatever "waiting for X" state it was in when the
+    // exception hit - every later message keeps getting funneled back into that same prompt with
+    // no way out, even for messages that have nothing to do with it.
+    private void resetToSafeState(UserSession session) {
+        session.setState(ConversationState.GREETING);
+        session.setPendingBooking(null);
     }
 
     private String handleByIntent(UserSession session, String message) throws IOException {

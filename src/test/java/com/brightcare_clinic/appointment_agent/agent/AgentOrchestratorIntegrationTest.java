@@ -1,6 +1,7 @@
 package com.brightcare_clinic.appointment_agent.agent;
 
 import com.brightcare_clinic.appointment_agent.ai.IntentService;
+import com.brightcare_clinic.appointment_agent.ai.exception.GeminiException;
 import com.brightcare_clinic.appointment_agent.ai.service.GeminiResponseParser;
 import com.brightcare_clinic.appointment_agent.ai.service.GeminiService;
 import com.brightcare_clinic.appointment_agent.ai.service.PromptBuilder;
@@ -627,6 +628,30 @@ class AgentOrchestratorIntegrationTest {
 
         assertTrue(reply.contains("doesn't seem to be there anymore"));
         verify(googleCalendarService, never()).cancelAppointment(any(), any());
+    }
+
+    @Test
+    void midFlowGeminiFailure_resetsSessionInsteadOfWedgingItInTheWaitingState() {
+        Long chatId = 555025L;
+
+        when(geminiService.analyzeMessage(anyString()))
+                // Starts a cancellation with no date/time yet, landing in WAITING_FOR_CANCELLATION_DETAILS.
+                .thenReturn("""
+                        {"intent":"cancel_appointment","patientName":null,"date":null,"time":null,"email":null}
+                        """)
+                // Simulates the real-world case: Gemini flakes out (e.g. 503 on both models) while
+                // extracting the date/time for that pending cancellation.
+                .thenThrow(new GeminiException("Failed to call Gemini API", new RuntimeException("503")));
+
+        agentOrchestratorService.processMessage(chatId, "I need to cancel my appointment");
+        String errorReply = agentOrchestratorService.processMessage(chatId, "Monday at 2pm");
+        assertEquals("Sorry, I'm having trouble understanding right now. Please try again shortly.", errorReply);
+
+        // Regression test: previously the session stayed wedged in WAITING_FOR_CANCELLATION_DETAILS
+        // after this failure, so every later message - even an unrelated greeting - kept getting
+        // funneled back into "what date and time was your appointment?" with no way out.
+        String nextReply = agentOrchestratorService.processMessage(chatId, "hi");
+        assertEquals("Hello! Welcome to BrightCare Clinic. How can I help you today?", nextReply);
     }
 
 }
