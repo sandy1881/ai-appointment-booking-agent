@@ -56,6 +56,8 @@ public class AgentOrchestratorService {
 
     private static final String GREETING_RESPONSE = "Hello! Welcome to BrightCare Clinic. How can I help you today?";
 
+    private static final String CLOSING_RESPONSE = "You're welcome! Have a great day.";
+
     // Matched only when the WHOLE message (after stripping punctuation) is one of these - a bare
     // "hi" doesn't need a Gemini round trip. Anything longer or combined with real content (e.g.
     // "hi, book me tomorrow at 3pm") still goes through Gemini so the actual intent isn't lost.
@@ -95,15 +97,26 @@ public class AgentOrchestratorService {
         String response;
 
         try {
-            response = switch (session.getState()) {
-                case WAITING_FOR_BOOKING_DETAILS -> handleBookingDetailsCollection(session, message);
-                case WAITING_FOR_SLOT_CONFIRMATION -> handleSlotConfirmation(session, message);
-                case WAITING_FOR_NAME -> handleNameCollection(session, message);
-                case WAITING_FOR_EMAIL -> handleEmailCollection(session, message);
-                case WAITING_FOR_CANCELLATION_DETAILS -> handleCancellationDetailsCollection(session, message);
-                case WAITING_FOR_CANCELLATION_CONFIRMATION -> handleCancellationConfirmation(session, message);
-                default -> handleByIntent(session, message);
-            };
+            if (isPureGreeting(message)) {
+                // A plain greeting is an unambiguous "start over" signal - it can interrupt any
+                // in-progress sub-flow (waiting for a date, a name, a confirmation, ...), not just
+                // the default/idle state. Without this, a flow that can't be satisfied by the
+                // user's next message (e.g. they got sidetracked and just say "hi") has no way out:
+                // handlers like handleCancellationDetailsCollection just re-prompt forever for
+                // whatever they were waiting on.
+                resetToSafeState(session);
+                response = GREETING_RESPONSE;
+            } else {
+                response = switch (session.getState()) {
+                    case WAITING_FOR_BOOKING_DETAILS -> handleBookingDetailsCollection(session, message);
+                    case WAITING_FOR_SLOT_CONFIRMATION -> handleSlotConfirmation(session, message);
+                    case WAITING_FOR_NAME -> handleNameCollection(session, message);
+                    case WAITING_FOR_EMAIL -> handleEmailCollection(session, message);
+                    case WAITING_FOR_CANCELLATION_DETAILS -> handleCancellationDetailsCollection(session, message);
+                    case WAITING_FOR_CANCELLATION_CONFIRMATION -> handleCancellationConfirmation(session, message);
+                    default -> handleByIntent(session, message);
+                };
+            }
         } catch (IOException e) {
             log.error("Calendar operation failed for chatId {}", session.getChatId(), e);
             response = "Sorry, I couldn't reach the calendar right now. Please try again shortly.";
@@ -133,10 +146,7 @@ public class AgentOrchestratorService {
     }
 
     private String handleByIntent(UserSession session, String message) throws IOException {
-        if (isPureGreeting(message)) {
-            return GREETING_RESPONSE;
-        }
-
+        // Note: pure greetings are already intercepted in processMessage() before this is reached.
         FaqResponse faqResponse = faqService.findAnswer(message);
         if (faqResponse.matched()) {
             return faqResponse.answer();
@@ -149,8 +159,32 @@ public class AgentOrchestratorService {
             case BOOK_APPOINTMENT -> startBooking(session, intentResult.getBookingExtraction());
             case CANCEL_APPOINTMENT -> startCancellation(session, intentResult.getBookingExtraction());
             case FAQ -> "I don't have a specific answer for that, but feel free to call the clinic directly.";
-            case CLOSING -> "You're welcome! Have a great day.";
+            case CLOSING -> CLOSING_RESPONSE;
             default -> "I'm not sure I understood that. Could you rephrase?";
+        };
+    }
+
+    // Called when a "waiting for details" handler couldn't find what it was looking for (no
+    // date/time in the reply). Rather than only recognizing greetings/closings that match our
+    // hardcoded local word list, ask Gemini's general intent classifier what the message actually
+    // is - covers arbitrary greetings ("sup", "namaste", ...), "nevermind"-type closings, or the
+    // user pivoting to a fresh request, without doubling the cost of every normal reply (this only
+    // runs after local extraction already failed to find a date/time).
+    private String handleUnresolvedDetailsReply(UserSession session, String message, String fallbackReprompt) throws IOException {
+        IntentResult intentResult = intentService.detectIntent(message, session.getConversationHistory());
+
+        return switch (intentResult.getIntentType()) {
+            case GREETING -> {
+                resetToSafeState(session);
+                yield GREETING_RESPONSE;
+            }
+            case CLOSING -> {
+                resetToSafeState(session);
+                yield CLOSING_RESPONSE;
+            }
+            case BOOK_APPOINTMENT -> startBooking(session, intentResult.getBookingExtraction());
+            case CANCEL_APPOINTMENT -> startCancellation(session, intentResult.getBookingExtraction());
+            default -> fallbackReprompt;
         };
     }
 
@@ -172,7 +206,8 @@ public class AgentOrchestratorService {
         BookingExtraction details = intentService.extractBookingDetails(message, session.getConversationHistory());
 
         if (details.getDate() == null || details.getTime() == null) {
-            return "Sorry, I didn't catch a specific date and time. Could you tell me when you'd like to come in? For example: \"tomorrow at 3 PM\".";
+            return handleUnresolvedDetailsReply(session, message,
+                    "Sorry, I didn't catch a specific date and time. Could you tell me when you'd like to come in? For example: \"tomorrow at 3 PM\".");
         }
 
         BookingRequest pending = session.getPendingBooking();
@@ -279,7 +314,8 @@ public class AgentOrchestratorService {
         BookingExtraction details = intentService.extractCancellationDetails(message, session.getConversationHistory());
 
         if (details.getDate() == null || details.getTime() == null) {
-            return "Sorry, I didn't catch a specific date and time. Could you tell me when the appointment was? For example: \"Monday at 2pm\".";
+            return handleUnresolvedDetailsReply(session, message,
+                    "Sorry, I didn't catch a specific date and time. Could you tell me when the appointment was? For example: \"Monday at 2pm\".");
         }
 
         return lookUpAppointmentToCancel(session, details.getDate(), details.getTime());

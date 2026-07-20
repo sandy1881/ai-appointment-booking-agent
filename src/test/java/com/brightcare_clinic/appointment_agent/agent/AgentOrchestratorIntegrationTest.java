@@ -654,4 +654,82 @@ class AgentOrchestratorIntegrationTest {
         assertEquals("Hello! Welcome to BrightCare Clinic. How can I help you today?", nextReply);
     }
 
+    @Test
+    void hardcodedGreeting_escapesAStuckWaitingForCancellationDetailsState() {
+        Long chatId = 555026L;
+
+        when(geminiService.analyzeMessage(anyString())).thenReturn("""
+                {"intent":"cancel_appointment","patientName":null,"date":null,"time":null,"email":null}
+                """);
+
+        agentOrchestratorService.processMessage(chatId, "cancel my booking");
+
+        // Regression test: reproduces the real user-reported transcript - once wedged in
+        // WAITING_FOR_CANCELLATION_DETAILS, even a plain "hii" kept getting the same cancellation
+        // reprompt instead of being recognized as a greeting, because the greeting fast path only
+        // lived inside the default/handleByIntent branch, never reached from this state. "hii" is
+        // in the local GREETING_PATTERN, so this resolves without any extra Gemini call.
+        String greetingReply = agentOrchestratorService.processMessage(chatId, "hii");
+
+        assertEquals("Hello! Welcome to BrightCare Clinic. How can I help you today?", greetingReply);
+        verify(geminiService, org.mockito.Mockito.times(1)).analyzeMessage(anyString());
+    }
+
+    @Test
+    void unusualGreetingNotInLocalList_stillEscapesStuckCancellationDetailsState_viaGeminiFallback() {
+        Long chatId = 555027L;
+
+        when(geminiService.analyzeMessage(anyString()))
+                // Starts a cancellation with no date/time yet, landing in WAITING_FOR_CANCELLATION_DETAILS.
+                .thenReturn("""
+                        {"intent":"cancel_appointment","patientName":null,"date":null,"time":null,"email":null}
+                        """)
+                // "sup" has no date/time in it, so local extraction comes back empty...
+                .thenReturn("""
+                        {"date":null,"time":null}
+                        """)
+                // ...which triggers a follow-up classification call. "sup" isn't in our local
+                // GREETING_PHRASES/GREETING_PATTERN, but Gemini's general classifier still
+                // recognizes it as a greeting.
+                .thenReturn("""
+                        {"intent":"greeting","patientName":null,"date":null,"time":null,"email":null}
+                        """);
+
+        agentOrchestratorService.processMessage(chatId, "cancel my booking");
+
+        // Regression test: it's not just "hii" that used to get stuck - ANY greeting outside our
+        // hardcoded local word list (e.g. "sup", "namaste", "yo yo") would keep re-prompting for a
+        // date/time forever once wedged in this state, since the local fast path can never cover
+        // every possible greeting. Falling back to Gemini's classifier when extraction fails covers
+        // the general case instead of playing whack-a-mole with more hardcoded words.
+        String reply = agentOrchestratorService.processMessage(chatId, "sup");
+
+        assertEquals("Hello! Welcome to BrightCare Clinic. How can I help you today?", reply);
+        verify(geminiService, org.mockito.Mockito.times(3)).analyzeMessage(anyString());
+    }
+
+    @Test
+    void unresolvedCancellationDetails_pivotingToClosingRemark_isRecognizedViaGeminiFallback() {
+        Long chatId = 555028L;
+
+        when(geminiService.analyzeMessage(anyString()))
+                .thenReturn("""
+                        {"intent":"cancel_appointment","patientName":null,"date":null,"time":null,"email":null}
+                        """)
+                .thenReturn("""
+                        {"date":null,"time":null}
+                        """)
+                .thenReturn("""
+                        {"intent":"closing","patientName":null,"date":null,"time":null,"email":null}
+                        """);
+
+        agentOrchestratorService.processMessage(chatId, "cancel my booking");
+
+        // "thanks end" isn't a date/time reply, and it's not a greeting either - it's a closing
+        // remark. The Gemini fallback should recognize that too, not just greetings.
+        String reply = agentOrchestratorService.processMessage(chatId, "thanks end");
+
+        assertEquals("You're welcome! Have a great day.", reply);
+    }
+
 }
