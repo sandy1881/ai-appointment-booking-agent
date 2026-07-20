@@ -54,6 +54,26 @@ public class AgentOrchestratorService {
     // cancellation instead of declining it. ("don't" splits into "don"/"t" on \W+.)
     private static final Set<String> NEGATIVE_WORDS = Set.of("no", "nope", "not", "don", "never", "keep");
 
+    private static final String GREETING_RESPONSE = "Hello! Welcome to BrightCare Clinic. How can I help you today?";
+
+    // Matched only when the WHOLE message (after stripping punctuation) is one of these - a bare
+    // "hi" doesn't need a Gemini round trip. Anything longer or combined with real content (e.g.
+    // "hi, book me tomorrow at 3pm") still goes through Gemini so the actual intent isn't lost.
+    private static final Set<String> GREETING_PHRASES = Set.of(
+            "hi", "hello", "hey", "hiya", "howdy", "yo", "greetings",
+            "hi there", "hello there", "hey there",
+            "good morning", "good afternoon", "good evening");
+
+    // Covers casual/typo'd stretching of the single-word greetings above - "hii", "hiii", "heyy",
+    // "hellooo" - without hardcoding every letter-repeat variant by hand.
+    private static final java.util.regex.Pattern GREETING_PATTERN =
+            java.util.regex.Pattern.compile("^(h+i+|h+e+y+|h+e+l+o+|h+i+y+a+|h+o+w+d+y+|y+o+)$");
+
+    private boolean isPureGreeting(String message) {
+        String normalized = message.toLowerCase().replaceAll("[^a-z ]", " ").trim().replaceAll("\\s+", " ");
+        return GREETING_PHRASES.contains(normalized) || GREETING_PATTERN.matcher(normalized).matches();
+    }
+
     private List<String> words(String message) {
         return Arrays.asList(message.toLowerCase().split("\\W+"));
     }
@@ -101,6 +121,10 @@ public class AgentOrchestratorService {
     }
 
     private String handleByIntent(UserSession session, String message) throws IOException {
+        if (isPureGreeting(message)) {
+            return GREETING_RESPONSE;
+        }
+
         FaqResponse faqResponse = faqService.findAnswer(message);
         if (faqResponse.matched()) {
             return faqResponse.answer();
@@ -109,7 +133,7 @@ public class AgentOrchestratorService {
         IntentResult intentResult = intentService.detectIntent(message, session.getConversationHistory());
 
         return switch (intentResult.getIntentType()) {
-            case GREETING -> "Hello! Welcome to BrightCare Clinic. How can I help you today?";
+            case GREETING -> GREETING_RESPONSE;
             case BOOK_APPOINTMENT -> startBooking(session, intentResult.getBookingExtraction());
             case CANCEL_APPOINTMENT -> startCancellation(session, intentResult.getBookingExtraction());
             case FAQ -> "I don't have a specific answer for that, but feel free to call the clinic directly.";

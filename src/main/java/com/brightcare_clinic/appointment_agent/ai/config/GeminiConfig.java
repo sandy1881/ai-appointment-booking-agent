@@ -15,6 +15,7 @@ public class GeminiConfig {
 
     private String apiKey;
     private String model;
+    private String fallbackModel;
 
     @Bean
     public RestClient geminiRestClient() {

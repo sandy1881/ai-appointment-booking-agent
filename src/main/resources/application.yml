@@ -20,7 +20,11 @@ telegram:
 
 gemini:
   api-key: ${GEMINI_API_KEY}
+  # Pinned version IDs (gemini-3.5-flash, gemini-2.5-flash, gemini-2.5-flash-lite, etc.) all 404
+  # for this API key - it seems restricted to Google's alias names instead of specific versions.
+  # Aliases resolve server-side to whatever model this key currently has access to.
   model: gemini-flash-latest
+  fallback-model: gemini-flash-lite-latest
 
 google:
   credentials-path: ${GOOGLE_CREDENTIALS_PATH}

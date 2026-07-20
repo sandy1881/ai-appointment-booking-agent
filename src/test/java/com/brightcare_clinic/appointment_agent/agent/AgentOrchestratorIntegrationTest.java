@@ -77,7 +77,9 @@ class AgentOrchestratorIntegrationTest {
         IntentService intentService = new IntentService(geminiService, new PromptBuilder(), new GeminiResponseParser(objectMapper));
 
         FaqRepository faqRepository = org.mockito.Mockito.mock(FaqRepository.class);
-        when(faqRepository.findAll()).thenReturn(List.of());
+        // lenient: the greeting fast path in AgentOrchestratorService returns before FaqService is
+        // ever consulted, so this stub goes unused by greeting-only tests.
+        org.mockito.Mockito.lenient().when(faqRepository.findAll()).thenReturn(List.of());
         FaqService faqService = new FaqService(faqRepository);
 
         ClinicProperties clinicProperties = new ClinicProperties();
@@ -333,14 +335,58 @@ class AgentOrchestratorIntegrationTest {
     // ---------------------------------------------------------------------
 
     @Test
-    void greeting_returnsWelcomeMessage() {
+    void plainGreeting_isHandledInCodeWithoutCallingGemini() {
         Long chatId = 555010L;
+
+        String reply = agentOrchestratorService.processMessage(chatId, "Hi there");
+
+        assertEquals("Hello! Welcome to BrightCare Clinic. How can I help you today?", reply);
+        verify(geminiService, never()).analyzeMessage(anyString());
+    }
+
+    @Test
+    void casuallyStretchedGreeting_isStillHandledInCodeWithoutCallingGemini() {
+        Long chatId = 555024L;
+
+        // Regression test: "hii" (real user input) used to miss the exact-match GREETING_PHRASES
+        // set and fall through to Gemini instead of being answered directly in code.
+        String reply = agentOrchestratorService.processMessage(chatId, "hii");
+
+        assertEquals("Hello! Welcome to BrightCare Clinic. How can I help you today?", reply);
+        verify(geminiService, never()).analyzeMessage(anyString());
+    }
+
+    @Test
+    void greetingMixedWithRealContent_stillGoesThroughGeminiForTheActualIntent() throws Exception {
+        Long chatId = 555022L;
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+
+        when(geminiService.analyzeMessage(anyString())).thenReturn("""
+                {"intent":"book_appointment","patientName":"Priya","date":"%s","time":"15:00","email":"priya@example.com"}
+                """.formatted(tomorrow));
+        when(googleCalendarService.isWithinBusinessHours(tomorrow, LocalTime.of(15, 0))).thenReturn(true);
+        when(googleCalendarService.checkAvailability(tomorrow, LocalTime.of(15, 0)))
+                .thenReturn(new CalendarSlot(tomorrow, LocalTime.of(15, 0), LocalTime.of(15, 30), true, "Requested slot is available."));
+
+        // "hi" is present but the message carries a real request, so this must not be short-circuited
+        // by the greeting fast path - it needs Gemini to extract the booking details.
+        String reply = agentOrchestratorService.processMessage(chatId, "hi, book me tomorrow at 3pm, name Priya, email priya@example.com");
+
+        assertTrue(reply.contains("available"));
+        verify(geminiService).analyzeMessage(anyString());
+    }
+
+    @Test
+    void llmClassifiedGreeting_stillGetsTheSameWelcomeMessage() {
+        Long chatId = 555023L;
 
         when(geminiService.analyzeMessage(anyString())).thenReturn("""
                 {"intent":"greeting","patientName":null,"date":null,"time":null,"email":null}
                 """);
 
-        String reply = agentOrchestratorService.processMessage(chatId, "Hi there");
+        // Not in the code-level GREETING_PHRASES list, so this exercises the Gemini-classified
+        // GREETING branch rather than the fast path.
+        String reply = agentOrchestratorService.processMessage(chatId, "greetings, I am new here");
 
         assertEquals("Hello! Welcome to BrightCare Clinic. How can I help you today?", reply);
     }
